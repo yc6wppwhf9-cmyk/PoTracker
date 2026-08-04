@@ -17,6 +17,9 @@ class Settings:
     )
     # Used to build links inside notification emails.
     app_url: str = os.getenv("APP_URL", "http://localhost:3000")
+    # Testing: when set, every notification is redirected to this address
+    # instead of its real recipients. Leave empty in production.
+    notify_override_to: str = os.getenv("NOTIFY_OVERRIDE_TO", "")
     allowed_origins: list[str] = [
         o.strip()
         for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")

@@ -47,6 +47,23 @@ def _send(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
             "recipients": len(recipients),
         }
 
+    # Testing override: send everything to one address instead of the real
+    # recipients, so exercising the workflow cannot email actual staff. The
+    # intended recipients are shown in the body, and the subject is tagged, so
+    # a redirected message can never be mistaken for a real one.
+    intended = recipients
+    override = settings.notify_override_to.strip()
+    if override:
+        recipients = [override]
+        subject = f"[TEST → {override}] {subject}"
+        body_html = (
+            '<div style="background:#fef3c7;border:1px solid #f59e0b;padding:12px;'
+            'margin-bottom:16px;font-family:sans-serif;font-size:13px;color:#78350f">'
+            "<strong>Test mode.</strong> This message was redirected here. "
+            f"In production it would have gone to: {html.escape(', '.join(intended))}"
+            "</div>"
+        ) + body_html
+
     try:
         res = httpx.post(
             RESEND_URL,
@@ -65,8 +82,12 @@ def _send(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
 
     if res.status_code >= 300:
         print(f"[notify failed] {res.status_code} {res.text[:300]}")
-        return {"sent": False, "status": res.status_code}
-    return {"sent": True, "recipients": len(recipients)}
+        return {"sent": False, "status": res.status_code, "detail": res.text[:300]}
+    result: dict[str, Any] = {"sent": True, "recipients": len(recipients)}
+    if override:
+        result["redirected_to"] = override
+        result["intended"] = intended
+    return result
 
 
 def _emails_with_role(user: CurrentUser, role: str) -> list[str]:
