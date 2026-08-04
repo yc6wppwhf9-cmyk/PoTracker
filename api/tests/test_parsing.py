@@ -69,17 +69,48 @@ def test_populates_unit_po_and_color():
     assert row.department == "Trims"
 
 
-def test_skips_zero_and_blank_quantities():
+def test_skips_non_positive_quantities():
+    """Pending = required - stock. Zero means exactly covered; negative means
+    surplus. Neither is a purchase, and a negative stored as demand would net
+    off other items' genuine requirement in any category total."""
     data = _workbook([
         HEADER,
         ["INV1001", "Covered by stock", 0, "pcs", None, None, None, None],
         ["INV1002", "No qty", None, "pcs", None, None, None, None],
         ["INV1003", "To buy", 5, "pcs", None, None, None, None],
+        ["INV1004", "Surplus stock", -16592, "pcs", None, None, None, None],
     ])
     parsed = parse_rm_sheet(data)
 
     assert [r.raw_code for r in parsed.rows] == ["INV1003"]
-    assert parsed.skipped_rows == 2
+    assert parsed.skipped_rows == 3
+    assert all(r.required_qty > 0 for r in parsed.rows)
+
+
+def test_surplus_row_from_the_real_sheet_is_not_demand():
+    """INV26643: need 10,240, hold 26,832 in stock, pending -16,592.
+    Nothing to buy — the line must not enter the requirement set, and must not
+    net against the genuine demand on the line beside it."""
+    data = _workbook([
+        ["COMPONENT ICODE", "COMPONENT ITEM NAME", "TOTAL_COMPONENT_QUANTITY",
+         "SOH", "Pending"],
+        ["INV26643", "WHL Atlas BL FSN", 10240, 26832, -16592],
+        ["INV1371", "Wheel Cover", 7000, 0, 7000],
+    ])
+    parsed = parse_rm_sheet(data)
+
+    assert [r.raw_code for r in parsed.rows] == ["INV1371"]
+    assert sum(r.required_qty for r in parsed.rows) == 7000
+
+
+def test_fully_stocked_sheet_reports_why_rather_than_a_format_error():
+    """A sheet with nothing left to buy is a valid sheet, not a malformed one."""
+    data = _workbook([
+        ["COMPONENT ICODE", "COMPONENT ITEM NAME", "Pending"],
+        ["INV26643", "WHL Atlas BL FSN", -16592],
+    ])
+    with pytest.raises(ValueError, match="Nothing to purchase"):
+        parse_rm_sheet(data)
 
 
 def test_header_not_on_first_row():

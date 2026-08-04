@@ -202,9 +202,18 @@ def _parse_worksheet(ws) -> tuple[list[ParsedRow], int, Optional[str]]:
         code = str(raw_code).strip() if raw_code is not None else None
         qty = _to_number(cell(row, qty_field))
 
-        # Skip rows with no code, or whose (pending) quantity is 0/blank —
-        # those are already covered by stock and not to be purchased.
-        if not code or qty is None or qty == 0:
+        # Skip rows with no code, or whose (pending) quantity is not positive.
+        #
+        # Pending = required - stock on hand, so zero means "exactly covered"
+        # and negative means "surplus" (e.g. need 10,240, hold 26,832 →
+        # -16,592). Neither is something to purchase, and a negative stored as
+        # a requirement is actively harmful: it nets off genuine demand from
+        # *other* items in any category total, and makes the reconciliation
+        # maths (expected_max = ceil(required/moq)*moq) meaningless.
+        #
+        # The full original row is still preserved in `raw_row`, so the surplus
+        # is not lost — it just isn't demand.
+        if not code or qty is None or qty <= 0:
             skipped += 1
             continue
 
@@ -253,6 +262,16 @@ def parse_rm_sheet(data: bytes) -> ParsedSheet:
     wb.close()
 
     if not all_rows:
+        # Distinguish "we couldn't read this file" from "we read it fine and
+        # there is simply nothing to purchase" — otherwise a fully-stocked
+        # sheet reports a column-detection error, which sends the uploader
+        # hunting for a formatting problem that doesn't exist.
+        if skipped_total:
+            raise ValueError(
+                f"Nothing to purchase: all {skipped_total} row(s) have a "
+                "pending quantity of zero or less, meaning stock on hand "
+                "already covers the requirement."
+            )
         raise ValueError(
             "No requirement rows found. Expected an item-code column (e.g. "
             "'COMPONENT ICODE') and a quantity column (e.g. 'Pending' / "
