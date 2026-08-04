@@ -65,6 +65,39 @@ export default async function ReconciliationPage({
   const approval = approvalRows?.[0];
   const isSentToMd = Boolean(approval?.sent_to_md_at);
 
+  // Readiness. Sending a half-finished package to the MD wastes their decision,
+  // so state plainly what is still outstanding rather than only offering the
+  // button. These are warnings, not a hard block — the approver may have a
+  // reason to send anyway.
+  const blockers: string[] = [];
+  if (canApprove) {
+    const { count: unassigned } = await supabase
+      .from("rm_requirement")
+      .select("*", { count: "exact", head: true })
+      .eq("rm_sheet_id", sheetId)
+      .not("item_code", "is", null)
+      .is("assigned_buyer", null);
+
+    const { data: sheetPos } = await supabase
+      .from("po")
+      .select("id, doc_path")
+      .eq("rm_sheet_id", sheetId);
+    const poCount = sheetPos?.length ?? 0;
+    const withoutDoc = (sheetPos ?? []).filter((p) => !p.doc_path).length;
+
+    if (unassigned)
+      blockers.push(`${unassigned.toLocaleString()} line(s) have no buyer assigned.`);
+    if (needsReview)
+      blockers.push(`${needsReview.toLocaleString()} line(s) have no item-code match.`);
+    if (poCount === 0) blockers.push("No purchase orders have been raised.");
+    else if (withoutDoc)
+      blockers.push(`${withoutDoc} PO(s) have no document attached.`);
+    if (counts["not_bought"])
+      blockers.push(
+        `${counts["not_bought"].toLocaleString()} line(s) are still not bought.`
+      );
+  }
+
   return (
     <AppShell profile={profile}>
       <Link
@@ -124,6 +157,23 @@ export default async function ReconciliationPage({
               Verify the breakdown above before sending. The MD sees a digest of
               these counts.
             </p>
+
+            {blockers.length > 0 && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+                <div className="text-xs font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                  Not ready yet
+                </div>
+                <ul className="mt-2 space-y-1 text-sm text-amber-800 dark:text-amber-300">
+                  {blockers.map((b) => (
+                    <li key={b}>• {b}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                  You can still send, but the MD will be deciding on an
+                  incomplete package.
+                </p>
+              </div>
+            )}
 
             {approval?.md_summary && (
               <div className="mt-4 rounded-xl border border-black/[0.06] bg-neutral-50 p-4 dark:border-white/[0.06] dark:bg-neutral-800/50">

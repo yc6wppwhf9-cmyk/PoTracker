@@ -20,6 +20,7 @@ type UploadResult = {
   auto_lines_inserted?: number;
   storage_ok?: boolean;
   message?: string;
+  reparsable?: boolean;
   warnings?: string[];
 };
 
@@ -29,6 +30,28 @@ export function UploadForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
+  // Held so an already-uploaded sheet can be re-parsed without asking the user
+  // to pick the same file again.
+  const [lastFile, setLastFile] = useState<File | null>(null);
+
+  async function send(file: File, reparse: boolean) {
+    setFileName(file.name);
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (reparse) fd.append("reparse", "true");
+      const res = await postForm<UploadResult>("/rm-sheets", fd);
+      setResult(res);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // Parsing starts the moment a file is chosen — there is no second step. The
   // reference is assigned server-side (MR-<year>-NNN), so nothing else is
@@ -40,21 +63,8 @@ export function UploadForm() {
     e.target.value = "";
     if (!file) return;
 
-    setFileName(file.name);
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await postForm<UploadResult>("/rm-sheets", fd);
-      setResult(res);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
-    } finally {
-      setBusy(false);
-    }
+    setLastFile(file);
+    await send(file, false);
   }
 
   return (
@@ -91,10 +101,30 @@ export function UploadForm() {
       {result && (
         <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950/40">
           {result.idempotent ? (
-            <p className="text-sm text-green-800 dark:text-green-300">
-              {result.message ?? "This sheet was already uploaded."} (sheet{" "}
-              <code>{result.rm_sheet_id.slice(0, 8)}</code>)
-            </p>
+            <div>
+              <p className="text-sm text-green-800 dark:text-green-300">
+                {result.message ?? "This sheet was already uploaded."} (sheet{" "}
+                <code>{result.rm_sheet_id.slice(0, 8)}</code>)
+              </p>
+              {result.reparsable && lastFile && (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => send(lastFile, true)}
+                    className="mt-3 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+                  >
+                    {busy ? "Re-parsing…" : "Re-parse this sheet"}
+                  </button>
+                  <p className="mt-2 text-xs text-green-800/80 dark:text-green-300/80">
+                    Rebuilds the requirement lines from the same file using the
+                    current rules. Purchase orders already raised are kept, but
+                    buyer assignments on this sheet are cleared and must be
+                    redone.
+                  </p>
+                </>
+              )}
+            </div>
           ) : (
             <>
               <h3 className="font-semibold text-green-900 dark:text-green-200">

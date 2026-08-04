@@ -53,6 +53,7 @@ def _load_catalogue(user: CurrentUser):
 def upload_rm_sheet(
     file: UploadFile = File(...),
     style_ref: Optional[str] = Form(default=None),
+    reparse: bool = Form(default=False),
     user: CurrentUser = Depends(get_current_user),
 ):
     require_roles(user, "uploader")
@@ -77,11 +78,35 @@ def upload_rm_sheet(
     )
     if existing.data:
         sheet = existing.data[0]
-        return {
-            "rm_sheet_id": sheet["id"],
-            "idempotent": True,
-            "message": "This exact sheet was already uploaded.",
-        }
+        if not reparse:
+            return {
+                "rm_sheet_id": sheet["id"],
+                "idempotent": True,
+                "reparsable": True,
+                "message": (
+                    "This exact sheet was already uploaded. Re-parse it to "
+                    "rebuild the requirement lines with the current rules."
+                ),
+            }
+        # Re-parse: the file is unchanged but the parsing rules have. Clear the
+        # derived requirement lines and rebuild them in place, keeping the same
+        # sheet id so assignments elsewhere still point at something real.
+        # POs are deliberately left alone — they are real orders, not derived.
+        user.client.table("rm_requirement").delete().eq(
+            "rm_sheet_id", sheet["id"]
+        ).execute()
+        user.client.table("audit_log").insert(
+            {
+                "actor_id": user.id,
+                "entity": "rm_sheet",
+                "entity_id": sheet["id"],
+                "action": "reparsed",
+                "detail": {"filename": filename},
+            }
+        ).execute()
+        existing_sheet_id = sheet["id"]
+    else:
+        existing_sheet_id = None
 
     # Parse (structural only).
     try:
@@ -125,19 +150,28 @@ def upload_rm_sheet(
     else:
         style_ref = style_ref.strip()
 
-    # Create the sheet record first (need its id for the storage path).
-    sheet_row = (
-        user.client.table("rm_sheet")
-        .insert(
-            {
-                "style_ref": style_ref,
-                "uploaded_by": user.id,
-                "content_hash": content_hash,
-                "status": "uploaded",
-            }
+    # Re-parse reuses the existing sheet so anything already pointing at it
+    # (POs, approvals) keeps working; a fresh upload creates the record.
+    if existing_sheet_id:
+        sheet_row = (
+            user.client.table("rm_sheet")
+            .update({"status": "uploaded"})
+            .eq("id", existing_sheet_id)
+            .execute()
         )
-        .execute()
-    )
+    else:
+        sheet_row = (
+            user.client.table("rm_sheet")
+            .insert(
+                {
+                    "style_ref": style_ref,
+                    "uploaded_by": user.id,
+                    "content_hash": content_hash,
+                    "status": "uploaded",
+                }
+            )
+            .execute()
+        )
     if not sheet_row.data:
         raise HTTPException(500, "Failed to create sheet record.")
     sheet_id = sheet_row.data[0]["id"]

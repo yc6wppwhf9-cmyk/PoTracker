@@ -28,6 +28,7 @@ const lotKey = (c: string, l: string | null) => `${c}__${l ?? ""}`;
 export function EscalationPanel({ sheetId }: { sheetId: string }) {
   const supabase = createClient();
   const [items, setItems] = useState<FlaggedItem[]>([]);
+  const [unassigned, setUnassigned] = useState(0);
   const [escalations, setEscalations] = useState<Escalation[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -72,11 +73,19 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
       (profs ?? []).map((p) => [p.id, p.full_name ?? p.email ?? p.id.slice(0, 8)])
     );
 
+    // Flagged lines with no assigned buyer cannot be escalated — there is
+    // nobody to escalate to. Count them so the approver knows they exist
+    // instead of them silently vanishing from the list.
+    let unassignedFlagged = 0;
+
     const flagged: FlaggedItem[] = [];
     for (const r of recon) {
       if (!r.item_code) continue;
       const bId = buyerByKey.get(lotKey(r.item_code, r.lot as string | null));
-      if (!bId) continue; // only escalatable if a buyer is assigned
+      if (!bId) {
+        unassignedFlagged += 1;
+        continue;
+      }
       flagged.push({
         item_code: r.item_code,
         lot: (r.lot as string | null) ?? null,
@@ -94,6 +103,7 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
       .order("created_at", { ascending: false });
 
     setItems(flagged);
+    setUnassigned(unassignedFlagged);
     setEscalations((esc ?? []) as Escalation[]);
     setLoading(false);
   }, [supabase, sheetId]);
@@ -135,6 +145,14 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
       </p>
 
       {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
+
+      {unassigned > 0 && (
+        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          {unassigned.toLocaleString()} flagged line(s) are hidden because no
+          buyer is assigned to them — there is nobody to escalate to. Ask the
+          purchase head to assign buyers on this sheet.
+        </p>
+      )}
 
       {items.length === 0 ? (
         <p className="mt-4 rounded-xl border border-black/[0.08] bg-white px-4 py-6 text-center text-sm text-neutral-500 dark:border-white/[0.08] dark:bg-neutral-900">
