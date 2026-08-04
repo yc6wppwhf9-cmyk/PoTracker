@@ -9,6 +9,7 @@ import {
   statusVar,
   type ReconRow,
 } from "@/lib/reconciliation";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { ReconTabs } from "./recon-tabs";
 
 export default async function ReconciliationPage({
@@ -28,11 +29,18 @@ export default async function ReconciliationPage({
   const sheet = sheetRows?.[0];
   if (!sheet) notFound();
 
-  const { data: rows } = await supabase
-    .from("reconciliation")
-    .select("*")
-    .eq("rm_sheet_id", sheetId);
-  const recon = (rows ?? []) as ReconRow[];
+  // Paged: Supabase caps a read at 1000 rows, and a large sheet exceeds that.
+  // A truncated read here under-reports every quantity on the page.
+  const recon = (await fetchAll((from, to) =>
+    supabase
+      .from("reconciliation")
+      .select("*")
+      .eq("rm_sheet_id", sheetId)
+      .order("item_code")
+      .order("lot")
+      .order("location")
+      .range(from, to)
+  )) as ReconRow[];
 
   // Lines still needing an item-code resolution (not in the view).
   const { count: needsReview } = await supabase

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { createClient } from "@/lib/supabase/client";
 import { raiseEscalation } from "../escalate-actions";
 
@@ -34,21 +35,32 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    // Flagged reconciliation lines (anything not on target).
-    const { data: recon } = await supabase
-      .from("reconciliation")
-      .select("item_code, lot, name, status")
-      .eq("rm_sheet_id", sheetId)
-      .neq("status", "on_target");
+    // Flagged reconciliation lines (anything not on target). Paged — a
+    // truncated read would hide flagged items the approver needs to escalate.
+    const recon = await fetchAll((from, to) =>
+      supabase
+        .from("reconciliation")
+        .select("item_code, lot, name, status")
+        .eq("rm_sheet_id", sheetId)
+        .neq("status", "on_target")
+        .order("item_code")
+        .order("lot")
+        .order("location")
+        .range(from, to)
+    );
 
     // Assigned buyer per (item, lot).
-    const { data: reqs } = await supabase
-      .from("rm_requirement")
-      .select("item_code, lot, assigned_buyer")
-      .eq("rm_sheet_id", sheetId)
-      .not("assigned_buyer", "is", null);
+    const reqs = await fetchAll((from, to) =>
+      supabase
+        .from("rm_requirement")
+        .select("item_code, lot, assigned_buyer")
+        .eq("rm_sheet_id", sheetId)
+        .not("assigned_buyer", "is", null)
+        .order("id")
+        .range(from, to)
+    );
     const buyerByKey = new Map<string, string>();
-    for (const r of reqs ?? [])
+    for (const r of reqs)
       if (r.item_code)
         buyerByKey.set(lotKey(r.item_code, r.lot as string | null), r.assigned_buyer as string);
 
@@ -61,7 +73,7 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
     );
 
     const flagged: FlaggedItem[] = [];
-    for (const r of recon ?? []) {
+    for (const r of recon) {
       if (!r.item_code) continue;
       const bId = buyerByKey.get(lotKey(r.item_code, r.lot as string | null));
       if (!bId) continue; // only escalatable if a buyer is assigned

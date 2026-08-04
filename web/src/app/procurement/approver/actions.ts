@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { sendEmail, appUrl } from "@/lib/notify";
 import { STATUS_META, type ReconStatus } from "@/lib/reconciliation";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 
 export type ApproveState = { error: string | null; ok: boolean };
 
@@ -29,12 +30,20 @@ export async function approveAndSend(
   if (!sheetId) return { error: "Missing sheet.", ok: false };
 
   // Build the summary from the reconciliation view.
-  const { data: recon } = await supabase
-    .from("reconciliation")
-    .select("status")
-    .eq("rm_sheet_id", sheetId);
+  // Paged: a truncated read would build the MD's summary from the first 1000
+  // lines only, understating every status count.
+  const recon = await fetchAll((from, to) =>
+    supabase
+      .from("reconciliation")
+      .select("status")
+      .eq("rm_sheet_id", sheetId)
+      .order("item_code")
+      .order("lot")
+      .order("location")
+      .range(from, to)
+  );
   const counts: Record<string, number> = {};
-  for (const r of recon ?? []) if (r.status) counts[r.status] = (counts[r.status] ?? 0) + 1;
+  for (const r of recon) if (r.status) counts[r.status] = (counts[r.status] ?? 0) + 1;
   const summary = buildSummary(counts);
 
   // One approval row per sheet: update if present, else insert.

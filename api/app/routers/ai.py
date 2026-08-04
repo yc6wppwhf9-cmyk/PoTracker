@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.config import get_settings
+from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -67,14 +68,13 @@ def generate_executive_summary(
         raise HTTPException(404, "RM sheet not found.")
     sheet = sheet_res.data[0]
 
-    # Fetch reconciliation view rows
-    recon_res = (
-        user.client.table("reconciliation")
+    # Fetch reconciliation view rows (paged — a large sheet exceeds 1000).
+    recon_rows = fetch_all(
+        lambda: user.client.table("reconciliation")
         .select("*")
-        .eq("rm_sheet_id", sheet_id)
-        .execute()
+        .eq("rm_sheet_id", sheet_id),
+        order_by="item_code",
     )
-    recon_rows = recon_res.data or []
 
     # Compute status counts and variance details
     counts: dict[str, int] = {}

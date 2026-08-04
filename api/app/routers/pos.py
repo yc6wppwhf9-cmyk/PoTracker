@@ -7,6 +7,7 @@ import openpyxl
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.auth import CurrentUser, get_current_user, require_roles
+from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 
@@ -251,10 +252,12 @@ def import_po_register(
 
     # `po_line.item_code` has a foreign key to `item_master`; an unknown code
     # aborts the whole batch insert. Drop those lines and report them instead.
-    catalogue = user.client.table("item_master").select("item_code").execute()
+    catalogue = fetch_all(
+        lambda: user.client.table("item_master").select("item_code"),
+        order_by="item_code",
+    )
     known = {
-        (c["item_code"] or "").strip().upper(): c["item_code"]
-        for c in catalogue.data or []
+        (c["item_code"] or "").strip().upper(): c["item_code"] for c in catalogue
     }
     unknown_codes: set[str] = set()
     for po_num in list(po_groups):
@@ -283,15 +286,15 @@ def import_po_register(
     # sheet's requirement lines where the item resolves unambiguously —
     # otherwise the reconciliation join produces phantom not_bought / extra pairs.
     if not cols.get("lot") and not cols.get("location"):
-        reqs = (
-            user.client.table("rm_requirement")
+        reqs = fetch_all(
+            lambda: user.client.table("rm_requirement")
             .select("item_code, lot, location")
             .eq("rm_sheet_id", sheet_id)
-            .not_.is_("item_code", "null")
-            .execute()
+            .not_.is_("item_code", "null"),
+            order_by="id",
         )
         by_item: dict[str, list[dict[str, Any]]] = {}
-        for r in reqs.data or []:
+        for r in reqs:
             by_item.setdefault((r["item_code"] or "").strip().upper(), []).append(r)
         for lines in po_groups.values():
             for line in lines:

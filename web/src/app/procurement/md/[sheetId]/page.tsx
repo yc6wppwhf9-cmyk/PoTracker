@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import {
   STATUS_META,
   STATUS_ORDER,
@@ -36,11 +37,17 @@ export default async function MdSheetDetailPage({
     .limit(1);
   const approval = approvalRows?.[0];
 
-  const { data: rows } = await supabase
-    .from("reconciliation")
-    .select("*")
-    .eq("rm_sheet_id", sheetId);
-  const recon = (rows ?? []) as ReconRow[];
+  // Paged — the MD's decision must not be based on a truncated view.
+  const recon = (await fetchAll((from, to) =>
+    supabase
+      .from("reconciliation")
+      .select("*")
+      .eq("rm_sheet_id", sheetId)
+      .order("item_code")
+      .order("lot")
+      .order("location")
+      .range(from, to)
+  )) as ReconRow[];
 
   const counts: Record<string, number> = {};
   for (const r of recon) if (r.status) counts[r.status] = (counts[r.status] ?? 0) + 1;

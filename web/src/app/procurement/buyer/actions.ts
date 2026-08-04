@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 
 export type CreatePoState = { error: string | null; poId: string | null };
 
@@ -41,14 +42,20 @@ export async function createPo(
     return { error: "Add an ordered quantity for at least one item.", poId: null };
 
   // Only allow (item, lot) pairs actually assigned to this buyer on this sheet.
-  const { data: assigned } = await supabase
-    .from("rm_requirement")
-    .select("item_code, lot, location")
-    .eq("rm_sheet_id", sheetId)
-    .eq("assigned_buyer", me.userId)
-    .not("item_code", "is", null);
+  // Paged: a truncated allowlist would reject lines the buyer is legitimately
+  // assigned to, blocking valid POs.
+  const assigned = await fetchAll((from, to) =>
+    supabase
+      .from("rm_requirement")
+      .select("item_code, lot, location")
+      .eq("rm_sheet_id", sheetId)
+      .eq("assigned_buyer", me.userId)
+      .not("item_code", "is", null)
+      .order("id")
+      .range(from, to)
+  );
   const allowed = new Set(
-    (assigned ?? []).map((r) =>
+    assigned.map((r) =>
       lotKey(r.item_code as string, r.lot as string | null, r.location as string | null)
     )
   );

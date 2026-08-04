@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm, type AssignedItem } from "./po-form";
 import { ImportPoRegister } from "../../po-team/[sheetId]/import-po-register";
 
@@ -24,17 +25,23 @@ export default async function BuyerSheetPage({
   if (!sheet) notFound();
 
   // This buyer's assigned lines for the sheet, with catalogue detail.
-  const { data: lines } = await supabase
-    .from("rm_requirement")
-    .select("item_code, lot, location, required_qty, item_master(name, category, moq)")
-    .eq("rm_sheet_id", sheetId)
-    .eq("assigned_buyer", profile.userId)
-    .not("item_code", "is", null);
+  // Paged: a truncated read would hide orderable lines from the buyer, so the
+  // PO they raise would under-order.
+  const lines = await fetchAll((from, to) =>
+    supabase
+      .from("rm_requirement")
+      .select("item_code, lot, location, required_qty, item_master(name, category, moq)")
+      .eq("rm_sheet_id", sheetId)
+      .eq("assigned_buyer", profile.userId)
+      .not("item_code", "is", null)
+      .order("id")
+      .range(from, to)
+  );
 
   // Aggregate per (item_code, lot, plant) — each is a separate orderable line so
   // a PO is traceable to its lot and plant.
   const agg = new Map<string, AssignedItem>();
-  for (const l of lines ?? []) {
+  for (const l of lines) {
     const im = l.item_master as
       | { name?: string; category?: string; moq?: number }
       | null;

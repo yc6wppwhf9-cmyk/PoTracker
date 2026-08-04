@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.parsing import parse_rm_sheet
+from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/rm-sheets", tags=["rm-sheets"])
 
@@ -19,20 +20,29 @@ XLSX_TYPES = {
 
 
 def _load_catalogue(user: CurrentUser):
-    """item_code -> base_unit, and (item_code, unit_lower) -> factor_to_base."""
-    items = user.client.table("item_master").select("item_code, base_unit").execute()
+    """item_code -> base_unit, and (item_code, unit_lower) -> factor_to_base.
+
+    Paged: a catalogue larger than 1000 items would otherwise come back
+    truncated, and every item past the cut would be treated as unknown.
+    """
+    items = fetch_all(
+        lambda: user.client.table("item_master").select("item_code, base_unit"),
+        order_by="item_code",
+    )
     by_code: dict[str, dict[str, Any]] = {}
-    for it in items.data or []:
+    for it in items:
         by_code[it["item_code"].strip().upper()] = {
             "item_code": it["item_code"],
             "base_unit": (it["base_unit"] or "").strip().lower(),
         }
 
-    uoms = user.client.table("uom_conversion").select(
-        "item_code, from_unit, factor_to_base"
-    ).execute()
     factors: dict[tuple[str, str], float] = {}
-    for u in uoms.data or []:
+    for u in fetch_all(
+        lambda: user.client.table("uom_conversion").select(
+            "item_code, from_unit, factor_to_base"
+        ),
+        order_by="item_code",
+    ):
         factors[(u["item_code"], (u["from_unit"] or "").strip().lower())] = float(
             u["factor_to_base"]
         )

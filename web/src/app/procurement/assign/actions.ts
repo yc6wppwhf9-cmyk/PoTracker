@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 
 export type AssignState = { error: string | null; ok: boolean };
 
@@ -32,17 +33,27 @@ export async function saveAssignments(
   }
 
   // Fetch every line for the sheet with item_code & catalogue category.
-  const { data: lines, error: readErr } = await supabase
-    .from("rm_requirement")
-    .select("id, item_code, item_master(category)")
-    .eq("rm_sheet_id", sheetId);
-  if (readErr) return { error: readErr.message, ok: false };
+  // Paged: a truncated read here would assign buyers to only the first 1000
+  // lines and silently leave the rest unassigned.
+  let lines: { id: string; item_code: string | null; item_master: unknown }[];
+  try {
+    lines = await fetchAll((from, to) =>
+      supabase
+        .from("rm_requirement")
+        .select("id, item_code, item_master(category)")
+        .eq("rm_sheet_id", sheetId)
+        .order("id")
+        .range(from, to)
+    );
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Read failed.", ok: false };
+  }
 
   // Group line ids by category key & item code key.
   const byCategory = new Map<string, string[]>();
   const byItemCode = new Map<string, string[]>();
 
-  for (const l of lines ?? []) {
+  for (const l of lines) {
     const cat =
       l.item_code == null
         ? UNMATCHED
@@ -83,15 +94,19 @@ export async function saveAssignments(
     }
   }
 
-  // Mark the sheet 'assigned' once every matched line has a buyer.
-  const { data: matched } = await supabase
-    .from("rm_requirement")
-    .select("id, assigned_buyer")
-    .eq("rm_sheet_id", sheetId)
-    .not("item_code", "is", null);
+  // Mark the sheet 'assigned' once every matched line has a buyer. Paged: a
+  // truncated read would call the sheet fully assigned after 1000 lines.
+  const matched = await fetchAll((from, to) =>
+    supabase
+      .from("rm_requirement")
+      .select("id, assigned_buyer")
+      .eq("rm_sheet_id", sheetId)
+      .not("item_code", "is", null)
+      .order("id")
+      .range(from, to)
+  );
   const allAssigned =
-    (matched?.length ?? 0) > 0 &&
-    (matched ?? []).every((r) => r.assigned_buyer != null);
+    matched.length > 0 && matched.every((r) => r.assigned_buyer != null);
 
   await supabase
     .from("rm_sheet")

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { AssignForm, type CategoryGroup, type InvItemGroup, type BuyerOption } from "./assign-form";
 
 const UNMATCHED = "__unmatched__";
@@ -25,10 +26,16 @@ export default async function AssignSheetPage({
   const sheetRow = sheetRows?.[0];
   if (!sheetRow) notFound();
 
-  const { data: lines } = await supabase
-    .from("rm_requirement")
-    .select("id, item_code, raw_label, required_qty, assigned_buyer, needs_review, item_master(name, category)")
-    .eq("rm_sheet_id", sheetId);
+  // Paged: a truncated read would hide whole categories from the assignment
+  // screen, so those lines could never be routed to a buyer.
+  const lines = await fetchAll((from, to) =>
+    supabase
+      .from("rm_requirement")
+      .select("id, item_code, raw_label, required_qty, assigned_buyer, needs_review, item_master(name, category)")
+      .eq("rm_sheet_id", sheetId)
+      .order("id")
+      .range(from, to)
+  );
 
   const { data: buyerRows } = await supabase
     .from("profiles")
@@ -62,7 +69,7 @@ export default async function AssignSheetPage({
   };
   const invMap = new Map<string, InvAcc>();
 
-  for (const l of lines ?? []) {
+  for (const l of lines) {
     const im = l.item_master as { name?: string; category?: string } | null;
     const cat = l.item_code == null ? UNMATCHED : (im?.category ?? UNMATCHED);
     const code = l.item_code ?? "UNMATCHED";
