@@ -33,32 +33,11 @@ export async function signIn(
   redirect(next ?? "/dashboard");
 }
 
-export async function signUp(
-  _prev: AuthState,
-  formData: FormData
-): Promise<AuthState> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
-  const fullName = String(formData.get("full_name") ?? "").trim();
-
-  if (!email || !password)
-    return { error: "Email and password are required." };
-  if (password.length < 8)
-    return { error: "Password must be at least 8 characters." };
-
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name: fullName } },
-  });
-  if (error) return { error: error.message };
-
-  // New users default to the 'uploader' role (profiles table default).
-  // An admin promotes them from /admin afterwards.
-  revalidatePath("/", "layout");
-  redirect("/dashboard");
-}
+// Self-service sign-up is deliberately not implemented: accounts are created by
+// an administrator. Note this only closes the app-level path — Supabase GoTrue
+// still accepts POST /auth/v1/signup with the publishable key, so sign-ups must
+// also be turned off in the Supabase dashboard (Authentication → Sign In /
+// Providers → Email → "Allow new users to sign up").
 
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
