@@ -1,0 +1,33 @@
+import os
+from functools import lru_cache
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class Settings:
+    supabase_url: str = os.getenv("SUPABASE_URL", "")
+    supabase_anon_key: str = os.getenv("SUPABASE_ANON_KEY", "")
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    allowed_origins: list[str] = [
+        o.strip()
+        for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if o.strip()
+    ]
+
+    def require(self) -> None:
+        missing = [
+            name
+            for name in ("supabase_url", "supabase_anon_key")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    s = Settings()
+    s.require()
+    return s

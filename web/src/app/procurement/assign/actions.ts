@@ -1,0 +1,139 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { requireRole } from "@/lib/auth";
+
+export type AssignState = { error: string | null; ok: boolean };
+
+const UNMATCHED = "__unmatched__";
+
+/**
+ * Assign buyers to a sheet's requirement lines, by category. The client submits
+ * one (category -> buyerId) entry per category; we resolve the line ids server
+ * side and update assigned_buyer. Empty buyerId unassigns.
+ */
+export async function saveAssignments(
+  _prev: AssignState,
+  formData: FormData
+): Promise<AssignState> {
+  const me = await requireRole("purchase_head");
+  const supabase = await createClient();
+
+  const sheetId = String(formData.get("sheet_id") ?? "");
+  if (!sheetId) return { error: "Missing sheet.", ok: false };
+
+  // assignments come as JSON: [{ category, itemCode, buyerId }]
+  let assignments: { category?: string; itemCode?: string; buyerId: string }[];
+  try {
+    assignments = JSON.parse(String(formData.get("assignments") ?? "[]"));
+  } catch {
+    return { error: "Malformed assignment payload.", ok: false };
+  }
+
+  // Fetch every line for the sheet with item_code & catalogue category.
+  const { data: lines, error: readErr } = await supabase
+    .from("rm_requirement")
+    .select("id, item_code, item_master(category)")
+    .eq("rm_sheet_id", sheetId);
+  if (readErr) return { error: readErr.message, ok: false };
+
+  // Group line ids by category key & item code key.
+  const byCategory = new Map<string, string[]>();
+  const byItemCode = new Map<string, string[]>();
+
+  for (const l of lines ?? []) {
+    const cat =
+      l.item_code == null
+        ? UNMATCHED
+        : ((l.item_master as { category?: string } | null)?.category ??
+          UNMATCHED);
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat)!.push(l.id);
+
+    if (l.item_code) {
+      const code = String(l.item_code).trim().toUpperCase();
+      if (!byItemCode.has(code)) byItemCode.set(code, []);
+      byItemCode.get(code)!.push(l.id);
+    }
+  }
+
+  const chunk = <T,>(arr: T[], n: number) =>
+    Array.from({ length: Math.ceil(arr.length / n) }, (_, i) =>
+      arr.slice(i * n, i * n + n)
+    );
+
+  let updated = 0;
+  for (const { category, itemCode, buyerId } of assignments) {
+    let ids: string[] = [];
+    if (itemCode) {
+      ids = byItemCode.get(String(itemCode).trim().toUpperCase()) ?? [];
+    } else if (category) {
+      ids = byCategory.get(category) ?? [];
+    }
+    if (ids.length === 0) continue;
+    const value = buyerId ? buyerId : null;
+    for (const batch of chunk(ids, 100)) {
+      const { error } = await supabase
+        .from("rm_requirement")
+        .update({ assigned_buyer: value })
+        .in("id", batch);
+      if (error) return { error: error.message, ok: false };
+      updated += batch.length;
+    }
+  }
+
+  // Mark the sheet 'assigned' once every matched line has a buyer.
+  const { data: matched } = await supabase
+    .from("rm_requirement")
+    .select("id, assigned_buyer")
+    .eq("rm_sheet_id", sheetId)
+    .not("item_code", "is", null);
+  const allAssigned =
+    (matched?.length ?? 0) > 0 &&
+    (matched ?? []).every((r) => r.assigned_buyer != null);
+
+  await supabase
+    .from("rm_sheet")
+    .update({ status: allAssigned ? "assigned" : "uploaded" })
+    .eq("id", sheetId);
+
+  await supabase.from("audit_log").insert({
+    actor_id: me.userId,
+    entity: "rm_sheet",
+    entity_id: sheetId,
+    action: "assigned",
+    detail: { lines_updated: updated, all_assigned: allAssigned },
+  });
+
+  revalidatePath(`/procurement/assign/${sheetId}`);
+  revalidatePath("/procurement/assign");
+  return { error: null, ok: true };
+}
+
+export async function deleteSheetAction(sheetId: string) {
+  const me = await requireRole("purchase_head");
+  const supabase = await createClient();
+
+  await supabase.from("approval").delete().eq("rm_sheet_id", sheetId);
+  await supabase.from("escalation").delete().eq("rm_sheet_id", sheetId);
+  const { data: pos } = await supabase.from("po").select("id").eq("rm_sheet_id", sheetId);
+  const poIds = (pos ?? []).map((p) => p.id);
+  if (poIds.length > 0) {
+    await supabase.from("po_line").delete().in("po_id", poIds);
+    await supabase.from("po").delete().eq("rm_sheet_id", sheetId);
+  }
+  await supabase.from("rm_requirement").delete().eq("rm_sheet_id", sheetId);
+  const { error } = await supabase.from("rm_sheet").delete().eq("id", sheetId);
+
+  revalidatePath("/procurement/assign");
+  revalidatePath("/procurement/reconciliation");
+  revalidatePath("/procurement/buyer");
+  revalidatePath("/procurement/approver");
+  revalidatePath("/procurement/md");
+
+  if (error) {
+    throw new Error(`Deletion failed: ${error.message}. Please check Supabase RLS DELETE policies.`);
+  }
+  return { ok: true };
+}

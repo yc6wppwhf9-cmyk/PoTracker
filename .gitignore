@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js
+web/.next/
+web/out/
+web/build/
+web/next-env.d.ts
+
+# Python / FastAPI (Phase 2+)
+api/.venv/
+api/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Environment
+.env
+.env.local
+.env*.local
+**/.env
+**/.env.local
+
+# Logs / OS
+*.log
+.DS_Store
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
