@@ -25,22 +25,28 @@ type UploadResult = {
 
 export function UploadForm() {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
-  const [styleRef, setStyleRef] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // Parsing starts the moment a file is chosen — there is no second step. The
+  // reference is assigned server-side (MR-<year>-NNN), so nothing else is
+  // needed from the uploader.
+  async function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Allow re-picking the same file after a failure: without clearing the
+    // input, choosing it again fires no change event.
+    e.target.value = "";
     if (!file) return;
+
+    setFileName(file.name);
     setBusy(true);
     setError(null);
     setResult(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      if (styleRef.trim()) fd.append("style_ref", styleRef.trim());
       const res = await postForm<UploadResult>("/rm-sheets", fd);
       setResult(res);
       router.refresh();
@@ -53,47 +59,34 @@ export function UploadForm() {
 
   return (
     <div className="max-w-xl">
-      <form
-        onSubmit={onSubmit}
-        className="rounded-2xl border border-black/10 bg-white p-6 dark:border-white/10 dark:bg-neutral-900"
-      >
+      <div className="rounded-2xl border border-black/10 bg-white p-6 dark:border-white/10 dark:bg-neutral-900">
         <label className="block">
           <span className="mb-1 block text-sm font-medium">RM sheet (.xlsx)</span>
           <input
             type="file"
             accept=".xlsx"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white dark:file:bg-white dark:file:text-neutral-900"
+            disabled={busy}
+            onChange={onFileChosen}
+            className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white disabled:opacity-50 dark:file:bg-white dark:file:text-neutral-900"
           />
         </label>
+        <p className="mt-2 text-xs text-neutral-500">
+          Parsing starts as soon as you choose a file.
+        </p>
 
-        <label className="mt-4 block">
-          <span className="mb-1 block text-sm font-medium">
-            Style reference <span className="text-neutral-400">(optional)</span>
-          </span>
-          <input
-            type="text"
-            value={styleRef}
-            onChange={(e) => setStyleRef(e.target.value)}
-            placeholder="e.g. STYLE-2026-014"
-            className="w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-neutral-950"
-          />
-        </label>
+        {busy && (
+          <p className="mt-4 flex items-center gap-2 rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-400 border-t-transparent" />
+            Uploading &amp; parsing{fileName ? ` “${fileName}”` : ""}…
+          </p>
+        )}
 
         {error && (
           <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
             {error}
           </p>
         )}
-
-        <button
-          type="submit"
-          disabled={!file || busy}
-          className="mt-5 w-full rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
-        >
-          {busy ? "Uploading & parsing…" : "Upload & parse"}
-        </button>
-      </form>
+      </div>
 
       {result && (
         <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-6 dark:border-green-900 dark:bg-green-950/40">

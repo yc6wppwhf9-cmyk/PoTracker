@@ -5,8 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { UploadPo } from "./upload-po";
 import { ImportPoRegister } from "./import-po-register";
+import { PoLinesEditor } from "./po-lines-editor";
 
 type PoLine = {
+  id: string;
   item_code: string | null;
   lot: string | null;
   location: string | null;
@@ -36,7 +38,7 @@ export default async function PoTeamSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, doc_path, created_at, created_by, po_line(item_code, lot, location, ordered_qty, moq, remark, item_master(name))"
+      "id, status, doc_path, created_at, created_by, po_line(id, item_code, lot, location, ordered_qty, moq, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .order("created_at", { ascending: false });
@@ -110,51 +112,20 @@ export default async function PoTeamSheetPage({
                   <span className="group-open:hidden">▸ View {lines.length} line item(s)</span>
                   <span className="hidden group-open:inline">▾ Hide line items</span>
                 </summary>
-                <div className="overflow-x-auto px-2 pb-3">
-                  <table className="w-full text-sm">
-                    <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
-                      <tr>
-                        <th className="px-3 py-2 font-medium">Item</th>
-                        <th className="px-3 py-2 font-medium">Code</th>
-                        <th className="px-3 py-2 font-medium">Plant</th>
-                        <th className="px-3 py-2 font-medium">Lot</th>
-                        <th className="px-3 py-2 font-medium">Ordered qty</th>
-                        <th className="px-3 py-2 font-medium">MOQ</th>
-                        <th className="px-3 py-2 font-medium">Remark</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((l, i) => (
-                        <tr
-                          key={`${p.id}-${l.item_code}-${i}`}
-                          className="border-t border-black/5 dark:border-white/5"
-                        >
-                          <td className="px-3 py-2">
-                            {l.item_master?.name ?? "—"}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {l.item_code}
-                          </td>
-                          <td className="px-3 py-2 text-neutral-500">
-                            {l.location ?? "—"}
-                          </td>
-                          <td className="px-3 py-2 text-neutral-500">
-                            {l.lot ?? "—"}
-                          </td>
-                          <td className="px-3 py-2">
-                            {Number(l.ordered_qty).toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2 text-neutral-500">
-                            {Number(l.moq).toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2 text-neutral-500">
-                            {l.remark ?? "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <PoLinesEditor
+                  poId={p.id}
+                  locked={Boolean(p.doc_path)}
+                  lines={lines.map((l) => ({
+                    id: l.id,
+                    item_code: l.item_code,
+                    name: l.item_master?.name ?? null,
+                    lot: l.lot,
+                    location: l.location,
+                    ordered_qty: Number(l.ordered_qty),
+                    moq: Number(l.moq),
+                    remark: l.remark,
+                  }))}
+                />
               </details>
             </div>
           );
