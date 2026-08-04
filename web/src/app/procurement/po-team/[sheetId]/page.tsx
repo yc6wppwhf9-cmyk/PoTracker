@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { UploadPo } from "./upload-po";
 import { ImportPoRegister } from "./import-po-register";
 import { PoLinesEditor } from "./po-lines-editor";
@@ -42,6 +43,26 @@ export default async function PoTeamSheetPage({
     )
     .eq("rm_sheet_id", sheetId)
     .order("created_at", { ascending: false });
+
+  // Required quantities from the RM sheet, keyed the same way the
+  // reconciliation view joins: (item_code, lot, location). Shown read-only
+  // beside the editable PO quantity so the PO team can see what was asked for.
+  const reqs = await fetchAll((from, to) =>
+    supabase
+      .from("rm_requirement")
+      .select("item_code, lot, location, required_qty")
+      .eq("rm_sheet_id", sheetId)
+      .not("item_code", "is", null)
+      .order("id")
+      .range(from, to)
+  );
+  const reqKey = (code: string, lot: string | null, loc: string | null) =>
+    `${code}__${lot ?? ""}__${loc ?? ""}`;
+  const requiredByKey = new Map<string, number>();
+  for (const r of reqs) {
+    const k = reqKey(r.item_code as string, r.lot as string | null, r.location as string | null);
+    requiredByKey.set(k, (requiredByKey.get(k) ?? 0) + (Number(r.required_qty) || 0));
+  }
 
   // created_by -> auth.users (no FK to profiles); resolve names separately.
   const buyerIds = [...new Set((pos ?? []).map((p) => p.created_by).filter(Boolean))];
@@ -121,6 +142,12 @@ export default async function PoTeamSheetPage({
                     name: l.item_master?.name ?? null,
                     lot: l.lot,
                     location: l.location,
+                    required:
+                      l.item_code == null
+                        ? null
+                        : requiredByKey.get(
+                            reqKey(l.item_code, l.lot, l.location)
+                          ) ?? null,
                     ordered_qty: Number(l.ordered_qty),
                     moq: Number(l.moq),
                     remark: l.remark,

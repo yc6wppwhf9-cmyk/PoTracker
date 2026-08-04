@@ -10,6 +10,9 @@ export type EditableLine = {
   name: string | null;
   lot: string | null;
   location: string | null;
+  /** From the RM sheet — what was asked for. Read-only. */
+  required: number | null;
+  /** What the PO is actually being raised for. Editable. */
   ordered_qty: number;
   moq: number;
   remark: string | null;
@@ -83,6 +86,7 @@ export function PoLinesEditor({
   }
 
   const total = lines.reduce((s, l) => s + (Number(rows[l.id]?.qty) || 0), 0);
+  const totalRequired = lines.reduce((s, l) => s + (l.required ?? 0), 0);
 
   return (
     <div className="px-2 pb-4">
@@ -94,6 +98,7 @@ export function PoLinesEditor({
               <th className="px-3 py-2 font-medium">Code</th>
               <th className="px-3 py-2 font-medium">Plant</th>
               <th className="px-3 py-2 font-medium">Lot</th>
+              <th className="px-3 py-2 font-medium">Required</th>
               <th className="px-3 py-2 font-medium">PO qty</th>
               <th className="px-3 py-2 font-medium">MOQ</th>
               <th className="px-3 py-2 font-medium">Remark</th>
@@ -115,6 +120,9 @@ export function PoLinesEditor({
                     {l.location ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-neutral-500">{l.lot ?? "—"}</td>
+                  <td className="px-3 py-2 tabular-nums text-neutral-600 dark:text-neutral-400">
+                    {l.required == null ? "—" : l.required.toLocaleString()}
+                  </td>
                   <td className="px-3 py-2">
                     {locked ? (
                       Number(l.ordered_qty).toLocaleString()
@@ -135,6 +143,23 @@ export function PoLinesEditor({
                     {under && (
                       <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
                         below MOQ → {moqRounded(q, m).toLocaleString()}
+                      </div>
+                    )}
+                    {l.required != null && q > 0 && q !== l.required && (
+                      <div
+                        className={`mt-0.5 text-[11px] tabular-nums ${
+                          q > l.required
+                            ? "text-neutral-500"
+                            : "text-red-600 dark:text-red-400"
+                        }`}
+                      >
+                        {q > l.required
+                          ? `+${(q - l.required).toLocaleString()} over required${
+                              m > 0 && q === moqRounded(l.required, m)
+                                ? " (MOQ)"
+                                : ""
+                            }`
+                          : `${(q - l.required).toLocaleString()} short`}
                       </div>
                     )}
                   </td>
@@ -196,8 +221,9 @@ export function PoLinesEditor({
                 Round all up to MOQ
               </button>
             )}
-            <span className="text-xs text-neutral-500">
-              Total {total.toLocaleString()}
+            <span className="text-xs tabular-nums text-neutral-500">
+              Required {totalRequired.toLocaleString()} · PO{" "}
+              {total.toLocaleString()}
             </span>
             {saved && (
               <span className="text-xs text-green-700 dark:text-green-400">
