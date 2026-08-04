@@ -14,6 +14,19 @@ function fmt(n: number | null): string {
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+/** Variance as a share of what was required. */
+function variancePct(required: number | null, variance: number): string {
+  const req = Number(required ?? 0);
+  // An extra_not_in_sheet line has nothing required, so a percentage of it is
+  // undefined rather than infinite — show the absence instead of "Infinity%".
+  if (!req) return "—";
+  const pct = (variance / req) * 100;
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+  })}%`;
+}
+
 export function ReconTabs({ rows }: { rows: ReconRow[] }) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -169,8 +182,8 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
               <th className="px-4 py-3.5 text-right">Required</th>
               <th className="px-4 py-3.5 text-right">Ordered</th>
               <th className="px-4 py-3.5 text-right">MOQ</th>
-              <th className="px-4 py-3.5 text-right">Expected max</th>
               <th className="px-4 py-3.5 text-right">Variance</th>
+              <th className="px-4 py-3.5 text-right">Variance %</th>
             </tr>
           </thead>
           <tbody>
@@ -215,9 +228,6 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
                   <td className="px-4 py-3.5 text-right tabular-nums text-slate-400">
                     {fmt(r.moq)}
                   </td>
-                  <td className="px-4 py-3.5 text-right tabular-nums text-slate-400">
-                    {fmt(r.expected_max)}
-                  </td>
                   <td
                     className="px-4 py-3.5 text-right font-semibold tabular-nums"
                     style={vColor ? { color: vColor } : { color: "#9ca3af" }}
@@ -235,6 +245,12 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
                         MOQ
                       </span>
                     )}
+                  </td>
+                  <td
+                    className="px-4 py-3.5 text-right font-semibold tabular-nums"
+                    style={vColor ? { color: vColor } : { color: "#9ca3af" }}
+                  >
+                    {variancePct(r.required, v)}
                   </td>
                 </tr>
               );

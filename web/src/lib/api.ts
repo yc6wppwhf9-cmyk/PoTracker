@@ -15,6 +15,45 @@ export async function getAccessToken(): Promise<string | null> {
   return session?.access_token ?? null;
 }
 
+/**
+ * GET a file from FastAPI and save it. The endpoint needs the caller's bearer
+ * token, so a plain <a href> cannot be used — fetch it, then hand the blob to
+ * a throwaway anchor.
+ */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const token = await getAccessToken();
+  if (!token) throw new Error("Not signed in.");
+
+  const res = await fetch(apiUrl(path), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      detail = (JSON.parse(text) as { detail?: string }).detail ?? text;
+    } catch {
+      /* not JSON — use the raw body */
+    }
+    throw new Error(detail || `Download failed (${res.status})`);
+  }
+
+  // Prefer the server's filename, which carries the sheet reference.
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const name = match?.[1] ?? fallbackName;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** POST a FormData body to FastAPI with the caller's bearer token. */
 export async function postForm<T = unknown>(
   path: string,

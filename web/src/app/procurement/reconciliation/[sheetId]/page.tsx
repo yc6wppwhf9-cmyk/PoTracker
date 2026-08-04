@@ -11,6 +11,7 @@ import {
 } from "@/lib/reconciliation";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { ReconTabs } from "./recon-tabs";
+import { ExportButton } from "./export-button";
 import { submitApproveAndSend } from "../../approver/actions";
 import { EscalationPanel } from "../../approver/[sheetId]/escalation-panel";
 
@@ -76,9 +77,12 @@ export default async function ReconciliationPage({
         <h1 className="text-2xl font-semibold tracking-tight">
           {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
         </h1>
-        <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium dark:bg-neutral-800">
-          {sheet.status}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium dark:bg-neutral-800">
+            {sheet.status}
+          </span>
+          {recon.length > 0 && <ExportButton sheetId={sheetId} />}
+        </div>
       </div>
       <p className="mt-1 text-neutral-500">
         Reconciliation of {recon.length} item(s) — purchased vs required.
