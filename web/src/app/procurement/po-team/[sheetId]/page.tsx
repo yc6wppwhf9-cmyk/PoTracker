@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { UploadPo } from "./upload-po";
-import { ImportPoRegister } from "./import-po-register";
 import { PoLinesEditor } from "./po-lines-editor";
 
 type PoLine = {
@@ -85,12 +84,9 @@ export default async function PoTeamSheetPage({
         {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
       </h1>
       <p className="mt-1 text-neutral-500">
-        {(pos ?? []).length} PO draft(s). Review lines, attach finalised document, or import PO register.
+        {(pos ?? []).length} PO draft(s). Confirm the quantities against the
+        signed PO, then attach the document.
       </p>
-
-      <div className="mt-6">
-        <ImportPoRegister sheetId={sheetId} />
-      </div>
 
       <div className="mt-6 space-y-4">
         {(pos ?? []).map((p) => {
