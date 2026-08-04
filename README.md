@@ -169,7 +169,11 @@ merged; the item-code column is detected by value when its header is junk.
 2. **The `/ai` endpoints are unreachable from the UI.** Wiring
    `approveAndSend()` to the summary endpoint is the intended Phase 7 finish.
 3. **Test coverage is limited to the parser**, and there is no CI.
-4. **`item_master` type drift** — the importer writes `article_name`,
-   `hsn_code`, and `material_type`, which are absent from the generated types.
-   The importer degrades to core columns and reports it, but the underlying
-   mismatch should be resolved once the schema is captured.
+
+Regenerate `web/src/lib/database.types.ts` after any schema change — it had
+drifted (missing `item_master.article_name` / `hsn_code` / `material_type`,
+all of which exist in the live table) and was corrected by hand:
+
+```bash
+supabase gen types typescript --project-id <project-ref> > web/src/lib/database.types.ts
+```

@@ -147,38 +147,11 @@ def import_item_master(
     if not rows:
         raise HTTPException(422, "No item rows found.")
 
-    # `article_name` / `hsn_code` / `material_type` are reference-only columns
-    # that may not exist in every deployment of the schema. Try the full payload
-    # once; if PostgREST rejects an unknown column, fall back to the core
-    # columns for the whole import and say so rather than failing outright.
-    CORE = ("item_code", "name", "category", "base_unit", "moq")
-    warnings: list[str] = []
-    degraded = False
-
-    def _core_only(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [{k: r[k] for k in CORE} for r in batch]
-
     CHUNK = 500
     for i in range(0, len(rows), CHUNK):
-        batch = rows[i : i + CHUNK]
-        if degraded:
-            user.client.table("item_master").upsert(
-                _core_only(batch), on_conflict="item_code"
-            ).execute()
-            continue
-        try:
-            user.client.table("item_master").upsert(
-                batch, on_conflict="item_code"
-            ).execute()
-        except Exception as e:
-            degraded = True
-            warnings.append(
-                "Catalogue stored without the reference columns "
-                f"(article_name / hsn_code / material_type): {e}"
-            )
-            user.client.table("item_master").upsert(
-                _core_only(batch), on_conflict="item_code"
-            ).execute()
+        user.client.table("item_master").upsert(
+            rows[i : i + CHUNK], on_conflict="item_code"
+        ).execute()
 
     user.client.table("audit_log").insert(
         {
@@ -186,12 +159,7 @@ def import_item_master(
             "entity": "item_master",
             "entity_id": None,
             "action": "imported",
-            "detail": {
-                "rows": len(rows),
-                "skipped": skipped,
-                "columns": cols,
-                "warnings": warnings,
-            },
+            "detail": {"rows": len(rows), "skipped": skipped, "columns": cols},
         }
     ).execute()
 
@@ -199,5 +167,4 @@ def import_item_master(
         "imported": len(rows),
         "skipped": skipped,
         "detected_columns": list(cols.keys()),
-        "warnings": warnings,
     }

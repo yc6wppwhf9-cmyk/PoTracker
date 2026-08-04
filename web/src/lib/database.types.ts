@@ -139,26 +139,35 @@ export type Database = {
       }
       item_master: {
         Row: {
+          article_name: string | null
           base_unit: string
           category: string
           created_at: string
+          hsn_code: string | null
           item_code: string
+          material_type: string | null
           moq: number
           name: string
         }
         Insert: {
+          article_name?: string | null
           base_unit: string
           category: string
           created_at?: string
+          hsn_code?: string | null
           item_code: string
+          material_type?: string | null
           moq?: number
           name: string
         }
         Update: {
+          article_name?: string | null
           base_unit?: string
           category?: string
           created_at?: string
+          hsn_code?: string | null
           item_code?: string
+          material_type?: string | null
           moq?: number
           name?: string
         }
