@@ -1,50 +1,83 @@
 import "server-only";
-
-type Email = { to: string[]; subject: string; html: string };
+import { createClient } from "@/lib/supabase/server";
 
 /**
- * Send a transactional email via Resend. Degrades gracefully: if RESEND_API_KEY
- * is absent (or there are no recipients) it logs and returns without throwing,
- * so a missing email config never blocks the core workflow.
+ * Notifications are sent by the FastAPI backend, which holds the Resend key —
+ * all third-party secrets live behind one service.
+ *
+ * Each call names a notification; the backend resolves recipients and body
+ * itself from the database. Nothing here supplies an address or HTML, so this
+ * cannot be used to send arbitrary mail.
+ *
+ * Degrades gracefully: a notification failure must never roll back the action
+ * that triggered it, since that action has already been committed.
  */
-export async function sendEmail(email: Email): Promise<{ ok: boolean; skipped?: boolean }> {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM ?? "Procurement <onboarding@resend.dev>";
-  const to = email.to.filter(Boolean);
+type NotifyResult = { sent: boolean; skipped?: boolean; error?: string };
 
-  if (!key || to.length === 0) {
-    console.log(`[notify skipped] "${email.subject}" → ${to.join(", ") || "(no recipients)"}`);
-    return { ok: true, skipped: true };
+async function notify(path: string, body: unknown): Promise<NotifyResult> {
+  const base = process.env.API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (!base) {
+    console.warn("[notify] no API base URL configured — skipping");
+    return { sent: false, skipped: true };
   }
 
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const supabase = await createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      console.warn("[notify] no session — skipping");
+      return { sent: false, skipped: true };
+    }
+
+    const res = await fetch(`${base}/notify/${path}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${key}`,
+        Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from, to, subject: email.subject, html: email.html }),
+      body: JSON.stringify(body),
     });
+
     if (!res.ok) {
-      console.error(`[notify failed] ${res.status} ${await res.text()}`);
-      return { ok: false };
+      console.error(`[notify ${path}] ${res.status} ${await res.text()}`);
+      return { sent: false, error: `HTTP ${res.status}` };
     }
-    return { ok: true };
+    return (await res.json()) as NotifyResult;
   } catch (e) {
-    console.error("[notify error]", e);
-    return { ok: false };
+    console.error(`[notify ${path}]`, e);
+    return { sent: false, error: e instanceof Error ? e.message : "failed" };
   }
 }
 
-/** Escape user-supplied text before interpolating it into an email body. */
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+/** Approver sent a reconciled package to the MD. */
+export function notifyMdApproval(rmSheetId: string, summary: string) {
+  return notify("md-approval", { rm_sheet_id: rmSheetId, summary });
+}
+
+/** Approver escalated a flagged material to its assigned buyer. */
+export function notifyBuyerEscalation(args: {
+  rmSheetId: string;
+  buyerId: string;
+  itemCode: string;
+  lot: string | null;
+  reason: string | null;
+  slaHours: number;
+}) {
+  return notify("buyer-escalation", {
+    rm_sheet_id: args.rmSheetId,
+    buyer_id: args.buyerId,
+    item_code: args.itemCode,
+    lot: args.lot,
+    reason: args.reason,
+    sla_hours: args.slaHours,
+  });
+}
+
+/** MD approved or rejected a package. */
+export function notifyMdDecision(rmSheetId: string, decision: string) {
+  return notify("md-decision", { rm_sheet_id: rmSheetId, decision });
 }
 
 export function appUrl(path: string): string {

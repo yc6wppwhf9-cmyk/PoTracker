@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { sendEmail, appUrl, escapeHtml } from "@/lib/notify";
+import { notifyMdDecision } from "@/lib/notify";
 
 export type MdState = { error: string | null; ok: boolean };
 
@@ -47,36 +47,8 @@ export async function mdDecision(
     detail: { rm_sheet_id: approval.rm_sheet_id },
   });
 
-  // Notify the uploader + purchase head(s).
-  const { data: sheet } = await supabase
-    .from("rm_sheet")
-    .select("uploaded_by, style_ref")
-    .eq("id", approval.rm_sheet_id)
-    .limit(1)
-    .then((r) => ({ data: r.data?.[0] }));
-
-  const recipients = new Set<string>();
-  if (sheet?.uploaded_by) {
-    const { data: up } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("id", sheet.uploaded_by)
-      .limit(1);
-    if (up?.[0]?.email) recipients.add(up[0].email);
-  }
-  const { data: heads } = await supabase
-    .from("profiles")
-    .select("email")
-    .eq("role", "purchase_head");
-  for (const h of heads ?? []) if (h.email) recipients.add(h.email);
-
-  await sendEmail({
-    to: [...recipients],
-    subject: `MD ${decision} — ${sheet?.style_ref ?? "PO"}`,
-    html: `<p>The Managing Director <strong>${decision}</strong> the PO for ${escapeHtml(
-      sheet?.style_ref ?? "the sheet"
-    )}.</p><p><a href="${appUrl("/dashboard")}">Open the app</a></p>`,
-  });
+  // Notify the uploader + purchase head(s). The backend resolves recipients.
+  await notifyMdDecision(approval.rm_sheet_id, decision);
 
   revalidatePath("/procurement/md");
   return { error: null, ok: true };

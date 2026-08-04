@@ -10,6 +10,13 @@ class Settings:
     supabase_url: str = os.getenv("SUPABASE_URL", "")
     supabase_anon_key: str = os.getenv("SUPABASE_ANON_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    # Transactional email. Absent key => notifications are skipped, never fatal.
+    resend_api_key: str = os.getenv("RESEND_API_KEY", "")
+    resend_from: str = os.getenv(
+        "RESEND_FROM", "Procurement <onboarding@resend.dev>"
+    )
+    # Used to build links inside notification emails.
+    app_url: str = os.getenv("APP_URL", "http://localhost:3000")
     allowed_origins: list[str] = [
         o.strip()
         for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")

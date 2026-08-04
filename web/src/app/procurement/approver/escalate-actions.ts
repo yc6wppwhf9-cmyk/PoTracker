@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { sendEmail, appUrl, escapeHtml } from "@/lib/notify";
+import { notifyBuyerEscalation } from "@/lib/notify";
 
 const WORKING_HOURS_SLA = 9;
 
@@ -69,22 +69,14 @@ export async function raiseEscalation(
     detail: { item_code: itemCode, lot, buyer: buyerId, reason },
   });
 
-  // Notify the buyer.
-  const { data: buyer } = await supabase
-    .from("profiles")
-    .select("email")
-    .eq("id", buyerId)
-    .limit(1);
-  await sendEmail({
-    to: [buyer?.[0]?.email].filter(Boolean) as string[],
-    subject: `Action needed: ${itemCode}${lot ? ` (${lot})` : ""}`.slice(0, 200),
-    html: `<p>An approver escalated <strong>${escapeHtml(itemCode)}</strong>${
-      lot ? ` / ${escapeHtml(lot)}` : ""
-    } to you.</p>${
-      reason ? `<p>Reason: ${escapeHtml(reason)}</p>` : ""
-    }<p>Please resolve within ${WORKING_HOURS_SLA} working hours, or it auto-escalates to the MD.</p><p><a href="${appUrl(
-      "/procurement/buyer"
-    )}">Open your workspace</a></p>`,
+  // Notify the buyer. The backend resolves their address and escapes the body.
+  await notifyBuyerEscalation({
+    rmSheetId: sheetId,
+    buyerId,
+    itemCode,
+    lot,
+    reason,
+    slaHours: WORKING_HOURS_SLA,
   });
 
   revalidatePath(`/procurement/approver/${sheetId}`);
