@@ -191,15 +191,15 @@ def upload_rm_sheet(
         # Refresh catalogue cache
         by_code, factors = _load_catalogue(user)
 
-    # Build requirement rows.
+    # Build requirement rows. Three outcomes, deliberately distinguished:
+    #   matched     — the code was already in the catalogue
+    #   provisional — we created the catalogue entry from this sheet just now,
+    #                 so its category/MOQ/unit are guesses awaiting confirmation
+    #   unresolved  — no catalogue entry, and none could be created
     to_insert: list[dict[str, Any]] = []
-    matched = unmatched = skipped = 0
+    matched = provisional = unresolved = 0
 
     for pr in parsed.rows:
-        if pr.required_qty is None:
-            skipped += 1
-            continue
-
         code_key = (pr.raw_code or "").strip().upper()
         hit = by_code.get(code_key) if code_key else None
 
@@ -232,10 +232,12 @@ def upload_rm_sheet(
                 "raw_row": pr.raw_row,
             }
         )
-        if item_code and not needs_review:
+        if hit and code_key not in auto_registered:
             matched += 1
+        elif code_key in auto_registered:
+            provisional += 1
         else:
-            unmatched += 1
+            unresolved += 1
 
     # Insert requirement rows in chunks.
     CHUNK = 500
@@ -316,8 +318,10 @@ def upload_rm_sheet(
                 "filename": filename,
                 "lines": len(to_insert),
                 "matched": matched,
-                "needs_review": unmatched,
-                "skipped": skipped,
+                "provisional": provisional,
+                "unresolved": unresolved,
+                "needs_review": provisional + unresolved,
+                "skipped": parsed.skipped_rows,
                 "distinct_items": distinct_items,
                 "storage_ok": storage_ok,
                 "style_ref": style_ref,
@@ -336,8 +340,10 @@ def upload_rm_sheet(
         "style_ref": style_ref,
         "lines": len(to_insert),
         "matched": matched,
-        "needs_review": unmatched,
-        "skipped": skipped,
+        "provisional": provisional,
+        "unresolved": unresolved,
+        "needs_review": provisional + unresolved,
+        "skipped": parsed.skipped_rows,
         "distinct_items": distinct_items,
         "auto_registered_items": len(auto_registered),
         "auto_pos_created": auto_pos_created,

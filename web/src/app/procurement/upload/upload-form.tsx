@@ -8,13 +8,20 @@ type UploadResult = {
   rm_sheet_id: string;
   idempotent: boolean;
   filename?: string;
+  style_ref?: string;
   lines?: number;
   matched?: number;
+  provisional?: number;
+  unresolved?: number;
   needs_review?: number;
   skipped?: number;
   distinct_items?: number;
+  auto_registered_items?: number;
+  auto_pos_created?: number;
+  auto_lines_inserted?: number;
   storage_ok?: boolean;
   message?: string;
+  warnings?: string[];
 };
 
 export function UploadForm() {
@@ -100,23 +107,51 @@ export function UploadForm() {
             <>
               <h3 className="font-semibold text-green-900 dark:text-green-200">
                 Parsed “{result.filename}”
+                {result.style_ref ? (
+                  <span className="ml-2 font-mono text-xs font-normal text-green-700 dark:text-green-400">
+                    {result.style_ref}
+                  </span>
+                ) : null}
               </h3>
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
                 <Stat label="Lines" value={result.lines} />
-                <Stat label="Matched" value={result.matched} />
-                <Stat label="Needs review" value={result.needs_review} />
+                <Stat label="In catalogue" value={result.matched} />
+                <Stat label="Newly registered" value={result.provisional} />
+                <Stat label="Unresolved" value={result.unresolved} />
                 <Stat label="Distinct items" value={result.distinct_items} />
-                <Stat label="Skipped" value={result.skipped} />
+                <Stat label="Zero-qty rows dropped" value={result.skipped} />
+                {!!result.auto_pos_created && (
+                  <Stat label="POs from sheet" value={result.auto_pos_created} />
+                )}
                 <Stat
                   label="File stored"
                   value={result.storage_ok ? "yes" : "no"}
                 />
               </dl>
-              {!!result.needs_review && result.needs_review > 0 && (
+
+              {!!result.provisional && result.provisional > 0 && (
                 <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-                  {result.needs_review} line(s) had an item code not in the
-                  catalogue — they’ll be resolved via fuzzy matching (Phase 7).
+                  {result.provisional} line(s) created a new catalogue entry from
+                  this sheet. Category came from the DEPARTMENT column and MOQ
+                  defaults to 0 — confirm them in the item catalogue before
+                  buyers rely on the MOQ.
                 </p>
+              )}
+
+              {!!result.unresolved && result.unresolved > 0 && (
+                <p className="mt-2 text-xs text-red-700 dark:text-red-400">
+                  {result.unresolved} line(s) have an item code that is not in
+                  the catalogue and could not be registered automatically —
+                  they will not reconcile until the code is added.
+                </p>
+              )}
+
+              {!!result.warnings?.length && (
+                <ul className="mt-3 space-y-1 border-t border-green-200 pt-3 text-xs text-neutral-600 dark:border-green-900 dark:text-neutral-400">
+                  {result.warnings.map((w, i) => (
+                    <li key={i}>• {w}</li>
+                  ))}
+                </ul>
               )}
             </>
           )}
