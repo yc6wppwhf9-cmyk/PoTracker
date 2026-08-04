@@ -128,6 +128,43 @@ def test_multi_tab_workbook_merges_rows_and_tags_location():
     assert {r.location for r in parsed.rows} == {"PLANT-A", "PLANT-B"}
 
 
+def test_prefers_component_columns_over_finished_goods_columns():
+    """Shape of the real 'Total DGPNT' tab: a finished-good code and order qty
+    sit alongside the component code and component qty. The requirement is the
+    *component*, so picking FG_ITEM_CODE / ORDERED_QUANTITY would be wrong."""
+    data = _workbook([
+        [
+            "FG_ITEM_CODE",
+            "FG_ITEM_NAME",
+            "ORDERED_QUANTITY",
+            "COMPONENT ICODE",
+            "COMPONENT ITEM NAME",
+            "TOTAL_COMPONENT_QUANTITY",
+        ],
+        ["INV29086", "DIY Universal 006", 408, "INV21780", "FB Bolt 170 WHT", 25.296],
+    ])
+    row = parse_rm_sheet(data).rows[0]
+
+    assert row.raw_code == "INV21780"
+    assert row.required_qty == pytest.approx(25.296)
+
+
+def test_prefers_pending_over_total_when_both_present():
+    """'Pending' is net of stock on hand; 'Total' is gross. Using the gross
+    column when a pending column exists would over-order every line."""
+    data = _workbook([
+        [
+            "COMPONENT ICODE",
+            "TOTAL_COMPONENT_QUANTITY",
+            "SOH_COMPONENT_QUANTITY",
+            "PENDING_COMPONENT_TO_ISSUE",
+        ],
+        ["INV20605", 1000, 400, 600],
+    ])
+    row = parse_rm_sheet(data).rows[0]
+    assert row.required_qty == 600
+
+
 def test_raises_when_no_recognisable_columns():
     data = _workbook([["Alpha", "Beta"], ["x", "y"]])
     with pytest.raises(ValueError, match="No requirement rows found"):
