@@ -11,7 +11,6 @@ type UploadResult = {
   style_ref?: string;
   lines?: number;
   matched?: number;
-  provisional?: number;
   unresolved?: number;
   needs_review?: number;
   skipped?: number;
@@ -115,9 +114,6 @@ export function UploadForm() {
               </h3>
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
                 <Stat label="Lines" value={result.lines} />
-                <Stat label="In catalogue" value={result.matched} />
-                <Stat label="Newly registered" value={result.provisional} />
-                <Stat label="Unresolved" value={result.unresolved} />
                 <Stat label="Distinct items" value={result.distinct_items} />
                 <Stat label="Zero-qty rows dropped" value={result.skipped} />
                 {!!result.auto_pos_created && (
@@ -129,20 +125,14 @@ export function UploadForm() {
                 />
               </dl>
 
-              {!!result.provisional && result.provisional > 0 && (
-                <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-                  {result.provisional} line(s) created a new catalogue entry from
-                  this sheet. Category came from the DEPARTMENT column and MOQ
-                  defaults to 0 — confirm them in the item catalogue before
-                  buyers rely on the MOQ.
-                </p>
-              )}
-
+              {/* Only surfaced when a line genuinely cannot reconcile. Codes
+                  registered from the sheet are treated as matched and are not
+                  the uploader's problem. */}
               {!!result.unresolved && result.unresolved > 0 && (
-                <p className="mt-2 text-xs text-red-700 dark:text-red-400">
-                  {result.unresolved} line(s) have an item code that is not in
-                  the catalogue and could not be registered automatically —
-                  they will not reconcile until the code is added.
+                <p className="mt-3 text-xs text-red-700 dark:text-red-400">
+                  {result.unresolved} line(s) have an item code that could not
+                  be added to the catalogue — they will not reconcile. Ask an
+                  admin to check the item catalogue.
                 </p>
               )}
 

@@ -191,11 +191,8 @@ def upload_rm_sheet(
         # Refresh catalogue cache
         by_code, factors = _load_catalogue(user)
 
-    # Build requirement rows. Three outcomes, deliberately distinguished:
-    #   matched     — the code was already in the catalogue
-    #   provisional — we created the catalogue entry from this sheet just now,
-    #                 so its category/MOQ/unit are guesses awaiting confirmation
-    #   unresolved  — no catalogue entry, and none could be created
+    # Build requirement rows. `provisional` (auto-registered from this sheet)
+    # is tracked for the audit log only — it counts as matched for the uploader.
     to_insert: list[dict[str, Any]] = []
     matched = provisional = unresolved = 0
 
@@ -203,10 +200,15 @@ def upload_rm_sheet(
         code_key = (pr.raw_code or "").strip().upper()
         hit = by_code.get(code_key) if code_key else None
 
-        item_code = hit["item_code"] if hit else (pr.raw_code.strip() if pr.raw_code else None)
-        # A code that only matches because we just auto-created it still needs a
-        # human to confirm the catalogue entry (category/MOQ/unit are guesses).
-        needs_review = (not hit) or (code_key in auto_registered)
+        # The sheet is the source of truth. A code we auto-registered a moment
+        # ago is a normal catalogue hit by now, so it counts as matched.
+        #
+        # `item_code` must be NULL rather than the raw code when there is no
+        # catalogue entry: the column has a foreign key to item_master, so
+        # writing an unregistered code would fail the whole batch insert and
+        # 500 the upload. `raw_code` keeps the original either way.
+        item_code = hit["item_code"] if hit else None
+        needs_review = not hit
         qty = float(pr.required_qty)
 
         if hit and pr.raw_unit and pr.raw_unit.strip().lower() != hit["base_unit"]:
@@ -232,10 +234,10 @@ def upload_rm_sheet(
                 "raw_row": pr.raw_row,
             }
         )
-        if hit and code_key not in auto_registered:
+        if hit:
             matched += 1
-        elif code_key in auto_registered:
-            provisional += 1
+            if code_key in auto_registered:
+                provisional += 1
         else:
             unresolved += 1
 
@@ -320,7 +322,7 @@ def upload_rm_sheet(
                 "matched": matched,
                 "provisional": provisional,
                 "unresolved": unresolved,
-                "needs_review": provisional + unresolved,
+                "needs_review": unresolved,
                 "skipped": parsed.skipped_rows,
                 "distinct_items": distinct_items,
                 "storage_ok": storage_ok,
@@ -340,9 +342,8 @@ def upload_rm_sheet(
         "style_ref": style_ref,
         "lines": len(to_insert),
         "matched": matched,
-        "provisional": provisional,
         "unresolved": unresolved,
-        "needs_review": provisional + unresolved,
+        "needs_review": unresolved,
         "skipped": parsed.skipped_rows,
         "distinct_items": distinct_items,
         "auto_registered_items": len(auto_registered),
