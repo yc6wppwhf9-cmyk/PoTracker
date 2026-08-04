@@ -13,6 +13,8 @@ type LineInput = {
   location: string | null;
   ordered_qty: number;
   moq: number;
+  supplier?: string | null;
+  rate?: number | null;
   remark?: string | null;
 };
 
@@ -35,11 +37,20 @@ export async function createPo(
   } catch {
     return { error: "Malformed line payload.", poId: null };
   }
-  lines = lines.filter(
-    (l) => l.item_code && Number(l.ordered_qty) > 0
-  );
-  if (lines.length === 0)
-    return { error: "Add an ordered quantity for at least one item.", poId: null };
+  const withQty = lines.filter((l) => l.item_code && Number(l.ordered_qty) > 0);
+  if (withQty.length === 0)
+    return {
+      error:
+        lines.length > 0
+          ? "Every selected line has a quantity of zero or less. Enter a positive order quantity."
+          : "Add an ordered quantity for at least one item.",
+      poId: null,
+    };
+  lines = withQty;
+
+  const negativeRate = lines.filter((l) => l.rate != null && Number(l.rate) < 0);
+  if (negativeRate.length > 0)
+    return { error: "Rate cannot be negative.", poId: null };
 
   // Only allow (item, lot) pairs actually assigned to this buyer on this sheet.
   // Paged: a truncated allowlist would reject lines the buyer is legitimately
@@ -90,6 +101,11 @@ export async function createPo(
       location: l.location ?? null,
       ordered_qty: Number(l.ordered_qty),
       moq: Number(l.moq) || 0,
+      supplier: l.supplier?.trim() ? l.supplier.trim() : null,
+      rate:
+        l.rate == null || !Number.isFinite(Number(l.rate))
+          ? null
+          : Number(l.rate),
       remark: l.remark?.trim() ? l.remark.trim() : null,
     }))
   );

@@ -221,9 +221,11 @@ export type Database = {
           moq: number
           ordered_qty: number
           po_id: string
+          rate: number | null
           raw_label: string | null
           raw_unit: string | null
           remark: string | null
+          supplier: string | null
         }
         Insert: {
           created_at?: string
@@ -234,9 +236,11 @@ export type Database = {
           moq?: number
           ordered_qty: number
           po_id: string
+          rate?: number | null
           raw_label?: string | null
           raw_unit?: string | null
           remark?: string | null
+          supplier?: string | null
         }
         Update: {
           created_at?: string
@@ -247,9 +251,11 @@ export type Database = {
           moq?: number
           ordered_qty?: number
           po_id?: string
+          rate?: number | null
           raw_label?: string | null
           raw_unit?: string | null
           remark?: string | null
+          supplier?: string | null
         }
         Relationships: [
           {

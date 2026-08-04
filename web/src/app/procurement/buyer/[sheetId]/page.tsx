@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm, type AssignedItem } from "./po-form";
-import { ImportPoRegister } from "../../po-team/[sheetId]/import-po-register";
 
 export default async function BuyerSheetPage({
   params,
@@ -94,12 +93,9 @@ export default async function BuyerSheetPage({
         {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
       </h1>
       <p className="mt-1 text-neutral-500">
-        {items.length} item(s) assigned to you. Upload your PO Register (.xlsx) or create PO drafts manually below.
+        {items.length} item(s) assigned to you. Select the items you are
+        ordering, then record the supplier and rate for each.
       </p>
-
-      <div className="mt-6">
-        <ImportPoRegister sheetId={sheetId} />
-      </div>
 
       <div className="mt-6">
         {items.length === 0 ? (

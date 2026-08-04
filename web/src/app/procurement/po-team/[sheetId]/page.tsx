@@ -14,6 +14,8 @@ type PoLine = {
   lot: string | null;
   location: string | null;
   ordered_qty: number;
+  supplier: string | null;
+  rate: number | null;
   moq: number;
   remark: string | null;
   item_master: { name?: string } | null;
@@ -39,7 +41,7 @@ export default async function PoTeamSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, doc_path, created_at, created_by, po_line(id, item_code, lot, location, ordered_qty, moq, remark, item_master(name))"
+      "id, status, doc_path, created_at, created_by, po_line(id, item_code, lot, location, ordered_qty, moq, supplier, rate, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .order("created_at", { ascending: false });
@@ -150,6 +152,8 @@ export default async function PoTeamSheetPage({
                           ) ?? null,
                     ordered_qty: Number(l.ordered_qty),
                     moq: Number(l.moq),
+                    supplier: l.supplier,
+                    rate: l.rate == null ? null : Number(l.rate),
                     remark: l.remark,
                   }))}
                 />

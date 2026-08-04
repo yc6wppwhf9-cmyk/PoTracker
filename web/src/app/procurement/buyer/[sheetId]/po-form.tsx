@@ -31,7 +31,19 @@ export function PoForm({
     Object.fromEntries(
       items.map((it) => [
         keyOf(it),
-        { include: false, ordered: it.required_qty, moq: it.moq, remark: "" },
+        {
+          include: false,
+          // MOQ is the minimum a supplier accepts, so default the order up to a
+          // whole multiple of it — ordering below MOQ produces a PO no supplier
+          // will fulfil. Same formula as expected_max in the reconciliation view.
+          ordered: it.moq > 0
+            ? Math.ceil(it.required_qty / it.moq) * it.moq
+            : it.required_qty,
+          moq: it.moq,
+          supplier: "",
+          rate: "",
+          remark: "",
+        },
       ])
     )
   );
@@ -55,12 +67,20 @@ export function PoForm({
     location: it.location,
     ordered_qty: Number(rows[keyOf(it)].ordered) || 0,
     moq: Number(rows[keyOf(it)].moq) || 0,
+    supplier: rows[keyOf(it)].supplier?.trim() || null,
+    rate: rows[keyOf(it)].rate === "" ? null : Number(rows[keyOf(it)].rate),
     remark: rows[keyOf(it)].remark?.trim() || null,
   }));
 
+  const orderValue = selected.reduce((sum, it) => {
+    const r = rows[keyOf(it)];
+    const rate = r.rate === "" ? 0 : Number(r.rate) || 0;
+    return sum + rate * (Number(r.ordered) || 0);
+  }, 0);
+
   function set(
     k: string,
-    field: "include" | "ordered" | "moq" | "remark",
+    field: "include" | "ordered" | "moq" | "supplier" | "rate" | "remark",
     value: unknown
   ) {
     setRows((r) => ({ ...r, [k]: { ...r[k], [field]: value } }));
@@ -83,6 +103,9 @@ export function PoForm({
               <th className="px-3 py-3 font-medium">Required</th>
               <th className="px-3 py-3 font-medium">Order qty</th>
               <th className="px-3 py-3 font-medium">MOQ</th>
+              <th className="px-3 py-3 font-medium">Supplier</th>
+              <th className="px-3 py-3 font-medium">Rate</th>
+              <th className="px-3 py-3 font-medium">Value</th>
               <th className="px-3 py-3 font-medium">Purchase remark</th>
             </tr>
           </thead>
@@ -143,11 +166,42 @@ export function PoForm({
                   <td className="px-3 py-2">
                     <input
                       type="text"
+                      value={row.supplier}
+                      onChange={(e) => set(k, "supplier", e.target.value)}
+                      disabled={!row.include}
+                      placeholder="supplier name"
+                      className="w-40 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={row.rate}
+                      onChange={(e) => set(k, "rate", e.target.value)}
+                      disabled={!row.include}
+                      placeholder="per unit"
+                      className="w-24 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
+                    />
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-neutral-600 dark:text-neutral-300">
+                    {row.include && row.rate !== ""
+                      ? (
+                          (Number(row.rate) || 0) * (Number(row.ordered) || 0)
+                        ).toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="text"
                       value={row.remark}
                       onChange={(e) => set(k, "remark", e.target.value)}
                       disabled={!row.include}
-                      placeholder="vendor / note"
-                      className="w-44 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
+                      placeholder="note"
+                      className="w-40 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
                     />
                   </td>
                 </tr>
@@ -158,7 +212,19 @@ export function PoForm({
       </div>
 
       <div className="mt-4 flex items-center justify-between">
-        <p className="text-sm text-neutral-500">{selected.length} line(s) selected</p>
+        <p className="text-sm text-neutral-500">
+          {selected.length} line(s) selected
+          {orderValue > 0 && (
+            <>
+              {" · order value "}
+              <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+                {orderValue.toLocaleString(undefined, {
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </>
+          )}
+        </p>
         <div className="flex items-center gap-3">
           {state.poId && (
             <span className="text-sm text-green-600">PO draft created ✓</span>

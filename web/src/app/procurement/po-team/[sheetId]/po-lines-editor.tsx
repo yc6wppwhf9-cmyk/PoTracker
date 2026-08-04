@@ -15,6 +15,9 @@ export type EditableLine = {
   /** What the PO is actually being raised for. Editable. */
   ordered_qty: number;
   moq: number;
+  /** Chosen by the buyer; shown here for reference. */
+  supplier: string | null;
+  rate: number | null;
   remark: string | null;
 };
 
@@ -101,6 +104,9 @@ export function PoLinesEditor({
               <th className="px-3 py-2 font-medium">Required</th>
               <th className="px-3 py-2 font-medium">PO qty</th>
               <th className="px-3 py-2 font-medium">MOQ</th>
+              <th className="px-3 py-2 font-medium">Supplier</th>
+              <th className="px-3 py-2 font-medium">Rate</th>
+              <th className="px-3 py-2 font-medium">Value</th>
               <th className="px-3 py-2 font-medium">Remark</th>
             </tr>
           </thead>
@@ -176,6 +182,19 @@ export function PoLinesEditor({
                         className="w-24 rounded-md border border-black/10 bg-white px-2 py-1 text-sm tabular-nums dark:border-white/15 dark:bg-neutral-950"
                       />
                     )}
+                  </td>
+                  <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
+                    {l.supplier ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-neutral-600 dark:text-neutral-300">
+                    {l.rate == null ? "—" : l.rate.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-neutral-600 dark:text-neutral-300">
+                    {l.rate == null || !(q > 0)
+                      ? "—"
+                      : (l.rate * q).toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
                   </td>
                   <td className="px-3 py-2 text-neutral-500">
                     {l.remark ?? "—"}
