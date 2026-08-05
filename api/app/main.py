@@ -55,7 +55,7 @@ def health():
     this endpoint is unauthenticated.
     """
     s = get_settings()
-    return {
+    out = {
         "status": "ok",
         "email_configured": bool(s.resend_api_key),
         "email_from": s.resend_from,
@@ -63,3 +63,14 @@ def health():
         "anthropic_configured": bool(s.anthropic_api_key),
         "app_url": s.app_url,
     }
+    # Every link in every notification email is built from app_url. If it is
+    # not absolute the links are silently unusable, and nothing else fails —
+    # so it is called out here rather than left to be discovered by a
+    # recipient clicking one.
+    if not s.app_url.startswith(("http://", "https://")):
+        out["warning"] = (
+            f"APP_URL is not an absolute URL ({s.app_url!r}), so links in "
+            "notification emails will not work. Set it to e.g. "
+            "https://your-app.vercel.app"
+        )
+    return out
