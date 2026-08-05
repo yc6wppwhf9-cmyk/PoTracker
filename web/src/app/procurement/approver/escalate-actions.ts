@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { notifyBuyerEscalation } from "@/lib/notify";
+import { notifyBuyerEscalation, notifyMdEscalations } from "@/lib/notify";
 
 const WORKING_HOURS_SLA = 9;
 
@@ -79,7 +79,12 @@ export async function raiseEscalation(
     slaHours: WORKING_HOURS_SLA,
   });
 
+  // Also push any escalation that has since breached its SLA to the MD, so
+  // that mail does not wait for the MD to happen to open the dashboard.
+  await notifyMdEscalations();
+
   revalidatePath(`/procurement/approver/${sheetId}`);
+  revalidatePath(`/procurement/reconciliation/${sheetId}`);
   revalidatePath("/procurement/buyer");
   return { error: null, ok: true };
 }

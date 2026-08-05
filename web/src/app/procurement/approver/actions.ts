@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { notifyMdApproval } from "@/lib/notify";
 import { STATUS_META, type ReconStatus } from "@/lib/reconciliation";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 
@@ -91,8 +90,8 @@ export async function approveAndSend(
     detail: { summary, counts },
   });
 
-  // Notify the MD(s). Recipients and body are resolved by the backend.
-  await notifyMdApproval(sheetId, summary);
+  // The MD is deliberately not emailed here. They are mailed for escalations
+  // only, so that alert keeps its weight; the package waits on their dashboard.
 
   revalidatePath("/procurement/approver");
   revalidatePath(`/procurement/approver/${sheetId}`);

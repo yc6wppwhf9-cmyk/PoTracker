@@ -15,9 +15,12 @@ reaches them:
     purchase head assigns    -> each assigned buyer (their own items only)
     buyer drafts a PO        -> PO team
     PO document attached     -> approver
-    approver sends to MD     -> MD
     approver escalates       -> the assigned buyer
+    escalation breaches SLA  -> MD
     MD decides               -> purchase head + uploader
+
+The MD is mailed for escalations only. Sending them every approval package
+would make the alert routine, and the point of an escalation is that it is not.
 """
 from __future__ import annotations
 
@@ -285,27 +288,76 @@ def notify_po_drafted(
     )
 
 
-class MdApproval(BaseModel):
-    rm_sheet_id: str
-    summary: str = ""
+@router.post("/md-escalations")
+def notify_md_escalations(user: CurrentUser = Depends(get_current_user)):
+    """Tell the MD about items escalated to them.
 
+    The MD is mailed for escalations only — not for every approval package —
+    so the alert means something when it arrives.
 
-@router.post("/md-approval")
-def notify_md_approval(
-    payload: MdApproval, user: CurrentUser = Depends(get_current_user)
-):
-    """Approver sent a package to the MD."""
-    require_roles(user, "approver")
-    sheet = get_sheet(user.client, payload.rm_sheet_id)
-    ref = _ref(sheet)
+    pg_cron flips an overdue escalation to `md_escalated` but cannot reach this
+    service, so this sweep does the mailing. It is idempotent: escalation ids
+    already mailed are recorded in audit_log and never mailed twice.
+    """
+    require_roles(user, "approver", "md", "purchase_head")
+
+    open_rows = (
+        user.client.table("escalation")
+        .select("id, item_code, lot, reason, escalate_after, rm_sheet_id")
+        .eq("status", "md_escalated")
+        .execute()
+    ).data or []
+    if not open_rows:
+        return {"sent": False, "skipped": True, "reason": "nothing escalated"}
+
+    already: set[str] = set()
+    prior = (
+        user.client.table("audit_log")
+        .select("detail")
+        .eq("entity", "escalation")
+        .eq("action", "md_escalation_notified")
+        .execute()
+    ).data or []
+    for row in prior:
+        for eid in (row.get("detail") or {}).get("escalation_ids", []):
+            already.add(eid)
+
+    fresh = [r for r in open_rows if r["id"] not in already]
+    if not fresh:
+        return {"sent": False, "skipped": True, "reason": "already notified"}
+
+    items = "".join(
+        "<li><strong>{code}</strong>{lot} — overdue since {due}{why}</li>".format(
+            code=html.escape(r.get("item_code") or "—"),
+            lot=f" / {html.escape(r['lot'])}" if r.get("lot") else "",
+            due=html.escape(str(r.get("escalate_after") or "")[:16]),
+            why=f" — {html.escape(r['reason'])}" if r.get("reason") else "",
+        )
+        for r in fresh
+    )
     body = (
-        f"<p>A reconciled PO for <strong>{ref}</strong> is awaiting your decision.</p>"
-        f"<p><strong>Summary:</strong> {html.escape(payload.summary)}</p>"
+        f"<p><strong>{len(fresh)}</strong> escalation(s) passed the "
+        "9-working-hour SLA without being resolved by the buyer and have been "
+        "escalated to you.</p>"
+        f"<ul>{items}</ul>"
         + _button(app_url("/procurement/md"), "Open the MD dashboard")
     )
-    return send_email(
-        emails_with_role(user.client, "md"), "PO ready for your approval", body
+    result = send_email(
+        emails_with_role(user.client, "md"),
+        f"{len(fresh)} escalation(s) need your attention",
+        body,
     )
+
+    if result.get("sent"):
+        user.client.table("audit_log").insert(
+            {
+                "actor_id": user.id,
+                "entity": "escalation",
+                "action": "md_escalation_notified",
+                "detail": {"escalation_ids": [r["id"] for r in fresh]},
+            }
+        ).execute()
+    return {**result, "escalations": len(fresh)}
 
 
 class BuyerEscalation(BaseModel):

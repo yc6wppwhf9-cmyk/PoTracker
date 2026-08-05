@@ -61,9 +61,16 @@ export function notifyPoDrafted(poId: string) {
   return notify("po-drafted", { po_id: poId });
 }
 
-/** Approver sent a reconciled package to the MD. */
-export function notifyMdApproval(rmSheetId: string, summary: string) {
-  return notify("md-approval", { rm_sheet_id: rmSheetId, summary });
+/**
+ * Mail the MD about items escalated to them past the SLA.
+ *
+ * The MD is mailed for escalations only — not for every approval package — so
+ * the alert still means something. pg_cron flips an overdue escalation to
+ * `md_escalated` but cannot reach the API, so this sweep does the mailing;
+ * it is idempotent, so calling it on page load is safe.
+ */
+export function notifyMdEscalations() {
+  return notify("md-escalations", {});
 }
 
 /** Approver escalated a flagged material to its assigned buyer. */
