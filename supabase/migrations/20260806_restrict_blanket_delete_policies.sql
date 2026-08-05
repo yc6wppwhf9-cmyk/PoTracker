@@ -33,14 +33,14 @@
 drop policy if exists "Allow delete on rm_sheet" on public.rm_sheet;
 create policy rm_sheet_delete_head
   on public.rm_sheet for delete
-  using (public.has_role(array['purchase_head', 'admin']::public.app_role[]));
+  using (public.has_role(variadic array['purchase_head', 'admin']::public.app_role[]));
 
 -- rm_requirement: the sheet owner re-parses (rm_req_delete_owner already
 -- covers that), and the purchase head deletes the sheet.
 drop policy if exists "Allow delete on rm_requirement" on public.rm_requirement;
 create policy rm_requirement_delete_head
   on public.rm_requirement for delete
-  using (public.has_role(array['purchase_head', 'admin']::public.app_role[]));
+  using (public.has_role(variadic array['purchase_head', 'admin']::public.app_role[]));
 
 -- po: the buyer who created it (rollback after a failed attach), or the
 -- purchase head deleting the whole sheet.
@@ -49,7 +49,7 @@ create policy po_delete_creator_or_head
   on public.po for delete
   using (
     created_by = auth.uid()
-    or public.has_role(array['purchase_head', 'admin']::public.app_role[])
+    or public.has_role(variadic array['purchase_head', 'admin']::public.app_role[])
   );
 
 -- po_line: follows its parent PO, reusing the same visibility rule the select
@@ -62,14 +62,14 @@ create policy po_line_delete_via_po
       select 1 from public.po x
       where x.id = po_line.po_id and x.created_by = auth.uid()
     )
-    or public.has_role(array['purchase_head', 'admin']::public.app_role[])
+    or public.has_role(variadic array['purchase_head', 'admin']::public.app_role[])
   );
 
 -- approval: only roles that can create or act on one.
 drop policy if exists "Allow delete on approval" on public.approval;
 create policy approval_delete_staff
   on public.approval for delete
-  using (public.has_role(array['purchase_head', 'approver', 'admin']::public.app_role[]));
+  using (public.has_role(variadic array['purchase_head', 'approver', 'admin']::public.app_role[]));
 
 -- escalation had no delete policy at all, yet deleteSheetAction deletes from
 -- it. That delete has been silently affecting zero rows, orphaning escalations
@@ -77,4 +77,4 @@ create policy approval_delete_staff
 drop policy if exists escalation_delete_head on public.escalation;
 create policy escalation_delete_head
   on public.escalation for delete
-  using (public.has_role(array['purchase_head', 'admin']::public.app_role[]));
+  using (public.has_role(variadic array['purchase_head', 'admin']::public.app_role[]));

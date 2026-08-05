@@ -25,7 +25,7 @@ drop policy if exists item_master_insert_uploader on public.item_master;
 create policy item_master_insert_uploader
   on public.item_master
   for insert
-  with check (public.has_role(array['uploader', 'purchase_head', 'admin']::public.app_role[]));
+  with check (public.has_role(variadic array['uploader', 'purchase_head', 'admin']::public.app_role[]));
 
 -- NOTE on the upsert: `on_conflict=item_code` needs UPDATE as well whenever a
 -- row already exists. It does not here, because rm_sheets.py only sends codes

@@ -8,15 +8,17 @@
 -- DROP makes re-running this file idempotent.
 --
 -- Uses the existing has_role() helper rather than reading profiles directly,
--- matching the rest of the policy set.
+-- matching the rest of the policy set. Note the VARIADIC: the function is
+-- declared has_role(variadic app_role[]), so passing a plain array argument
+-- fails to resolve with 42883 rather than being coerced.
 
 drop policy if exists po_line_update_po_team on public.po_line;
 
 create policy po_line_update_po_team
   on public.po_line
   for update
-  using      (public.has_role(array['po_team', 'admin']::public.app_role[]))
-  with check (public.has_role(array['po_team', 'admin']::public.app_role[]));
+  using      (public.has_role(variadic array['po_team', 'admin']::public.app_role[]))
+  with check (public.has_role(variadic array['po_team', 'admin']::public.app_role[]));
 
 -- Verify afterwards with:
 --   select policyname, cmd, roles
