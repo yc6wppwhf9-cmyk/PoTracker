@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { cleanEnv } from "@/lib/env";
 
 /**
  * Notifications are sent by the FastAPI backend, which holds the Resend key —
@@ -15,7 +16,9 @@ import { createClient } from "@/lib/supabase/server";
 type NotifyResult = { sent: boolean; skipped?: boolean; error?: string };
 
 async function notify(path: string, body: unknown): Promise<NotifyResult> {
-  const base = process.env.API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL;
+  const base =
+    cleanEnv("API_BASE_URL", process.env.API_BASE_URL) ||
+    cleanEnv("NEXT_PUBLIC_API_BASE_URL", process.env.NEXT_PUBLIC_API_BASE_URL);
   if (!base) {
     console.warn("[notify] no API base URL configured — skipping");
     return { sent: false, skipped: true };

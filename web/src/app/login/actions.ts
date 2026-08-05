@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseUrl } from "@/lib/env";
 
 export type AuthState = { error: string | null };
 
@@ -23,9 +24,39 @@ export async function signIn(
   if (!email || !password)
     return { error: "Email and password are required." };
 
+  // Checked before attempting the call: a missing or malformed project URL
+  // surfaces from supabase-js as a bare "fetch failed", which names neither
+  // the variable at fault nor the host it tried to reach.
+  const url = supabaseUrl();
+  if (!url || !/^https?:\/\//.test(url))
+    return {
+      error:
+        "Sign-in is not configured: NEXT_PUBLIC_SUPABASE_URL is missing or " +
+        `not a URL (${url || "empty"}). It must be the Supabase project URL, ` +
+        "not the API URL.",
+    };
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: error.message };
+  if (error) {
+    // "fetch failed" means the host was unreachable, not that the credentials
+    // were wrong — say which host, so the misconfiguration is visible.
+    if (/fetch failed|network/i.test(error.message)) {
+      const host = (() => {
+        try {
+          return new URL(url).host;
+        } catch {
+          return url;
+        }
+      })();
+      return {
+        error:
+          `Could not reach the authentication server at ${host}. Check ` +
+          "NEXT_PUBLIC_SUPABASE_URL points at your Supabase project.",
+      };
+    }
+    return { error: error.message };
+  }
 
   revalidatePath("/", "layout");
   // Phase 1: everyone lands on the /dashboard hub. Later phases route each
