@@ -6,6 +6,17 @@ import { requireRole } from "@/lib/auth";
 
 export type SaveLinesState = { error: string | null; ok: boolean };
 
+/** Turn a Postgres permission error into something the user can act on. */
+function explainWriteFailure(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("row-level security") || m.includes("permission denied"))
+    return (
+      "Your role does not have permission to edit PO lines. Apply " +
+      "supabase/migrations/20260805_po_team_can_edit_po_lines.sql, then retry."
+    );
+  return message;
+}
+
 export type LineEdit = {
   id: string;
   ordered_qty: number;
@@ -47,14 +58,27 @@ export async function savePoLines(
   if (foreign.length > 0)
     return { error: "Some lines do not belong to this PO.", ok: false };
 
+  let changed = 0;
   for (const e of edits) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("po_line")
       .update({ ordered_qty: e.ordered_qty, moq: e.moq })
       .eq("id", e.id)
-      .eq("po_id", poId);
-    if (error) return { error: error.message, ok: false };
+      .eq("po_id", poId)
+      .select("id");
+    if (error) return { error: explainWriteFailure(error.message), ok: false };
+    changed += data?.length ?? 0;
   }
+
+  // RLS denies an UPDATE by returning zero affected rows rather than an error,
+  // so a silent no-op would otherwise look like a successful save.
+  if (changed === 0)
+    return {
+      error:
+        "Nothing was saved — your role does not have permission to edit PO " +
+        "lines. Apply supabase/migrations/20260805_po_team_can_edit_po_lines.sql.",
+      ok: false,
+    };
 
   await supabase.from("audit_log").insert({
     actor_id: me.userId,
