@@ -90,6 +90,19 @@ export function PoForm({
     return sum + rate * (Number(r.ordered) || 0);
   }, 0);
 
+  // Mirrors the grouping createPo performs, so the count shown on the button
+  // is the number of drafts actually produced.
+  const supplierGroups = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const it of selected) {
+      const s = rows[keyOf(it)].supplier?.trim() || "";
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    return [...counts.entries()];
+  }, [selected, rows]);
+  const missingSupplier =
+    supplierGroups.find(([s]) => s === "")?.[1] ?? 0;
+
 
   function set(
     k: string,
@@ -249,7 +262,28 @@ export function PoForm({
         </table>
       </div>
 
-      <div className="mt-4 flex items-center justify-between">
+      {/* A PO goes to one supplier and carries one signed document, so the
+          selection is split per supplier. Saying so up front means the buyer
+          is not surprised by three drafts appearing. */}
+      {supplierGroups.length > 1 && (
+        <p className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+          <strong>{supplierGroups.length} separate PO drafts</strong> will be
+          created, one per supplier — each gets its own document from the PO
+          team:{" "}
+          {supplierGroups
+            .map(([s, n]) => `${s || "no supplier yet"} (${n})`)
+            .join(", ")}
+          .
+        </p>
+      )}
+      {missingSupplier > 0 && (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          {missingSupplier} selected line(s) have no supplier. They will be
+          grouped into one draft — set the supplier to split them out.
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-neutral-500">
           {selected.length} line(s) selected
           {orderValue > 0 && (
@@ -265,7 +299,11 @@ export function PoForm({
         </p>
         <div className="flex items-center gap-3">
           {state.poId && (
-            <span className="text-sm text-green-600">PO draft created ✓</span>
+            <span className="text-sm text-green-600">
+              {(state.count ?? 1) > 1
+                ? `${state.count} PO drafts created ✓`
+                : "PO draft created ✓"}
+            </span>
           )}
           {state.error && <span className="text-sm text-red-600">{state.error}</span>}
           <button
@@ -273,7 +311,11 @@ export function PoForm({
             disabled={pending || selected.length === 0}
             className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
           >
-            {pending ? "Creating…" : "Create PO draft"}
+            {pending
+              ? "Creating…"
+              : supplierGroups.length > 1
+                ? `Create ${supplierGroups.length} PO drafts`
+                : "Create PO draft"}
           </button>
         </div>
       </div>

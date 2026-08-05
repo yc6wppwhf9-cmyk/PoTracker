@@ -19,6 +19,17 @@ type PoLine = {
   item_master: { name?: string } | null;
 };
 
+/**
+ * The supplier a PO is for. Drafts are split one per supplier, so this is
+ * normally a single name — but older POs raised before the split, and any
+ * created directly, can still hold several, and showing only the first would
+ * misidentify which document belongs to the card.
+ */
+function suppliersOf(lines: PoLine[]): string | null {
+  const names = [...new Set(lines.map((l) => l.supplier?.trim()).filter(Boolean))];
+  return names.length === 0 ? null : (names as string[]).join(", ");
+}
+
 export default async function PoTeamSheetPage({
   params,
 }: {
@@ -102,7 +113,12 @@ export default async function PoTeamSheetPage({
                   <div className="font-mono text-xs text-neutral-500">
                     PO {p.id.slice(0, 8)}
                   </div>
-                  <div className="font-medium">{buyer}</div>
+                  {/* Drafts are split one per supplier, so the supplier is what
+                      identifies a card — it says which document belongs here. */}
+                  <div className="font-medium">
+                    {suppliersOf(lines) ?? "No supplier set"}
+                  </div>
+                  <div className="text-xs text-neutral-500">Drafted by {buyer}</div>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="text-neutral-500">

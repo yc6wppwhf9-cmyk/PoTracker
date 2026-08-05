@@ -6,7 +6,12 @@ import { requireRole } from "@/lib/auth";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { notifyPoDrafted } from "@/lib/notify";
 
-export type CreatePoState = { error: string | null; poId: string | null };
+export type CreatePoState = {
+  error: string | null;
+  poId: string | null;
+  /** How many drafts were created — one per distinct supplier. */
+  count?: number;
+};
 
 type LineInput = {
   item_code: string;
@@ -83,48 +88,91 @@ export async function createPo(
       poId: null,
     };
 
-  // Create the PO draft.
-  const { data: poRows, error: poErr } = await supabase
-    .from("po")
-    .insert({ rm_sheet_id: sheetId, created_by: me.userId, status: "draft" })
-    .select("id")
-    .limit(1);
-  if (poErr || !poRows?.[0])
-    return { error: poErr?.message ?? "Could not create PO.", poId: null };
-  const poId = poRows[0].id;
+  // One PO per supplier. A purchase order is issued to a single supplier and
+  // the signed document is attached to the `po` row, so a draft mixing
+  // suppliers could only ever carry one of their documents. Lines with no
+  // supplier yet are grouped together under a single unassigned draft, which
+  // the PO team can still work on.
+  const bySupplier = new Map<string, LineInput[]>();
+  for (const l of lines) {
+    const key = l.supplier?.trim() || "";
+    if (!bySupplier.has(key)) bySupplier.set(key, []);
+    bySupplier.get(key)!.push(l);
+  }
 
-  const { error: lineErr } = await supabase.from("po_line").insert(
-    lines.map((l) => ({
-      po_id: poId,
-      item_code: l.item_code,
-      lot: l.lot ?? null,
-      location: l.location ?? null,
-      ordered_qty: Number(l.ordered_qty),
-      // MOQ is not part of this process; the column keeps its 0 default so
-      // the reconciliation view's expected_max falls back to the requirement.
-      moq: 0,
-      supplier: l.supplier?.trim() ? l.supplier.trim() : null,
-      rate:
-        l.rate == null || !Number.isFinite(Number(l.rate))
-          ? null
-          : Number(l.rate),
-      remark: l.remark?.trim() ? l.remark.trim() : null,
-    }))
-  );
-  if (lineErr) return { error: lineErr.message, poId: null };
+  const created: string[] = [];
+  for (const [supplier, group] of bySupplier) {
+    const { data: poRows, error: poErr } = await supabase
+      .from("po")
+      .insert({ rm_sheet_id: sheetId, created_by: me.userId, status: "draft" })
+      .select("id")
+      .limit(1);
+    if (poErr || !poRows?.[0])
+      return {
+        error: partial(
+          created,
+          poErr?.message ?? "Could not create PO.",
+          supplier
+        ),
+        poId: created[0] ?? null,
+      };
+    const poId = poRows[0].id;
 
-  await supabase.from("audit_log").insert({
-    actor_id: me.userId,
-    entity: "po",
-    entity_id: poId,
-    action: "po_drafted",
-    detail: { sheet_id: sheetId, lines: lines.length },
-  });
+    const { error: lineErr } = await supabase.from("po_line").insert(
+      group.map((l) => ({
+        po_id: poId,
+        item_code: l.item_code,
+        lot: l.lot ?? null,
+        location: l.location ?? null,
+        ordered_qty: Number(l.ordered_qty),
+        // MOQ is not part of this process; the column keeps its 0 default so
+        // the reconciliation view's expected_max falls back to the requirement.
+        moq: 0,
+        supplier: supplier || null,
+        rate:
+          l.rate == null || !Number.isFinite(Number(l.rate))
+            ? null
+            : Number(l.rate),
+        remark: l.remark?.trim() ? l.remark.trim() : null,
+      }))
+    );
+    if (lineErr) {
+      // Leave no empty PO behind for the PO team to puzzle over.
+      await supabase.from("po").delete().eq("id", poId);
+      return {
+        error: partial(created, lineErr.message, supplier),
+        poId: created[0] ?? null,
+      };
+    }
 
-  // Hand off to the PO team. Non-fatal: the draft is already created.
-  await notifyPoDrafted(poId);
+    await supabase.from("audit_log").insert({
+      actor_id: me.userId,
+      entity: "po",
+      entity_id: poId,
+      action: "po_drafted",
+      detail: {
+        sheet_id: sheetId,
+        lines: group.length,
+        supplier: supplier || null,
+      },
+    });
+
+    // Hand off to the PO team. Non-fatal: the draft is already created.
+    await notifyPoDrafted(poId);
+    created.push(poId);
+  }
 
   revalidatePath(`/procurement/buyer/${sheetId}`);
   revalidatePath("/procurement/po-team");
-  return { error: null, poId };
+  return { error: null, poId: created[0] ?? null, count: created.length };
+}
+
+/** A later supplier failing must not read as though nothing was created. */
+function partial(created: string[], message: string, supplier: string): string {
+  const who = supplier || "the lines with no supplier";
+  if (created.length === 0) return message;
+  return (
+    `${created.length} PO draft(s) were created, but the one for ${who} ` +
+    `failed: ${message}. Deselect the lines already drafted before retrying.`
+  );
 }
