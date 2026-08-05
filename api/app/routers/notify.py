@@ -96,7 +96,24 @@ def send_email(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
 
     if res.status_code >= 300:
         print(f"[notify failed] {res.status_code} {res.text[:300]}")
-        return {"sent": False, "status": res.status_code, "detail": res.text[:300]}
+        result = {"sent": False, "status": res.status_code, "detail": res.text[:300]}
+        # A 403 naming the domain is not a code fault and not a DNS fault
+        # either, most often: an API key belongs to one Resend team, and the
+        # verified domain to another, which fails exactly like an unverified
+        # domain. Say so, because the Resend message does not.
+        if res.status_code == 403 and "domain is not verified" in res.text:
+            sender = settings.resend_from
+            result["hint"] = (
+                f"Resend rejected the sender {sender}. Check, in order: the "
+                "domain shows Verified (not Pending) at resend.com/domains; "
+                "the API key in RESEND_API_KEY was created in the SAME Resend "
+                "team as that domain; and RESEND_FROM uses that exact domain. "
+                "To send before the domain is ready, set RESEND_FROM to "
+                "'onboarding@resend.dev', which delivers only to the address "
+                "that owns the Resend account."
+            )
+            print(f"[notify hint] {result['hint']}")
+        return result
 
     result: dict[str, Any] = {"sent": True, "recipients": len(recipients)}
     if override:
