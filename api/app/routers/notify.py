@@ -213,6 +213,43 @@ def notify_po_attached(client: Client, po_id: str) -> dict[str, Any]:
     )
 
 
+# Helper to notify the PO team about a drafted PO from server-side code.
+def notify_po_drafted_client(client: Client, po_id: str) -> dict[str, Any]:
+    po = (
+        client.table("po")
+        .select("id, rm_sheet_id")
+        .eq("id", po_id)
+        .limit(1)
+        .execute()
+    )
+    if not po.data:
+        return {"sent": False, "skipped": True, "reason": "PO not found"}
+    sheet_id = po.data[0]["rm_sheet_id"]
+    sheet = get_sheet(client, sheet_id)
+    ref = _ref(sheet)
+
+    lines = (
+        client.table("po_line")
+        .select("ordered_qty")
+        .eq("po_id", po_id)
+        .execute()
+    ).data or []
+    total = sum(float(l.get("ordered_qty") or 0) for l in lines)
+
+    body = (
+        f"<p>A buyer has drafted a purchase order on <strong>{ref}</strong>.</p>"
+        f"<p>{len(lines):,} line(s), {total:,.0f} total quantity.</p>"
+        "<p>Confirm the quantities against the signed PO, then attach the "
+        "document.</p>"
+        + _button(app_url(f"/procurement/po-team/{sheet_id}"), "Open PO team")
+    )
+    return send_email(
+        emails_with_role(client, "po_team"),
+        f"New PO draft to process — {sheet.get('style_ref') or sheet_id[:8]}",
+        body,
+    )
+
+
 # --------------------------------------------------------------------------
 # HTTP endpoints (called from Next.js server actions)
 # --------------------------------------------------------------------------
@@ -303,39 +340,12 @@ def notify_po_drafted(
 ):
     """Buyer raised a PO draft — tell the PO team to prepare the document."""
     require_roles(user, "buyer")
-    po = (
-        user.client.table("po")
-        .select("id, rm_sheet_id")
-        .eq("id", payload.po_id)
-        .limit(1)
-        .execute()
-    )
-    if not po.data:
-        raise HTTPException(404, "PO not found.")
-    sheet_id = po.data[0]["rm_sheet_id"]
-    sheet = get_sheet(user.client, sheet_id)
-    ref = _ref(sheet)
-
-    lines = (
-        user.client.table("po_line")
-        .select("ordered_qty")
-        .eq("po_id", payload.po_id)
-        .execute()
-    ).data or []
-    total = sum(float(l.get("ordered_qty") or 0) for l in lines)
-
-    body = (
-        f"<p>A buyer has drafted a purchase order on <strong>{ref}</strong>.</p>"
-        f"<p>{len(lines):,} line(s), {total:,.0f} total quantity.</p>"
-        "<p>Confirm the quantities against the signed PO, then attach the "
-        "document.</p>"
-        + _button(app_url(f"/procurement/po-team/{sheet_id}"), "Open PO team")
-    )
-    return send_email(
-        emails_with_role(user.client, "po_team"),
-        f"New PO draft to process — {sheet.get('style_ref') or sheet_id[:8]}",
-        body,
-    )
+    # Use server-side helper so other server code can notify the PO team too.
+    result = notify_po_drafted_client(user.client, payload.po_id)
+    # Mirror the helper's behaviour to the HTTP caller.
+    if not result:
+        raise HTTPException(500, "Notification failed")
+    return result
 
 
 @router.post("/md-escalations")

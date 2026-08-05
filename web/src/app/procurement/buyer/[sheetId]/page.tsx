@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm, type AssignedItem } from "./po-form";
+import { sendPo } from "../actions";
 
 export default async function BuyerSheetPage({
   params,
@@ -137,6 +138,17 @@ export default async function BuyerSheetPage({
                         {p.status}
                       </span>
                       {p.doc_path ? "📎 doc" : "—"}
+                      {p.status === "draft" && (
+                        <form action={sendPo} className="inline-block ml-2">
+                          <input type="hidden" name="po_id" value={p.id} />
+                          <button
+                            type="submit"
+                            className="rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700"
+                          >
+                            Send
+                          </button>
+                        </form>
+                      )}
                     </span>
                   </div>
                   <details className="group border-t border-black/5 dark:border-white/5">

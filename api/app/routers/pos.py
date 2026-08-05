@@ -7,7 +7,7 @@ import openpyxl
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.auth import CurrentUser, get_current_user, require_roles
-from app.routers.notify import notify_po_attached
+from app.routers.notify import notify_po_attached, notify_po_drafted_client
 from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/pos", tags=["pos"])
@@ -398,3 +398,57 @@ def import_po_register(
         "failed_pos": failed_pos,
         "message": message,
     }
+
+
+# --------------------------------------------------------------------------
+# Send a drafted PO: mark it as sent and notify the PO team. This is the action
+# triggered by the buyer's "Send" button. Draft creation deliberately does not
+# notify; only an explicit send should reach the PO team.
+# --------------------------------------------------------------------------
+@router.post("/{po_id}/send")
+def send_po(
+    po_id: str, user: CurrentUser = Depends(get_current_user)
+):
+    require_roles(user, "buyer")
+    # Confirm PO exists and is visible to this user (RLS: po_select).
+    po = (
+        user.client.table("po")
+        .select("id, rm_sheet_id, created_by, status")
+        .eq("id", po_id)
+        .limit(1)
+        .execute()
+    )
+    if not po.data:
+        raise HTTPException(404, "PO not found.")
+    row = po.data[0]
+    # Only the creator may send their draft.
+    if row.get("created_by") != user.id:
+        raise HTTPException(403, "You are not allowed to send this PO.")
+    if row.get("status") != "draft":
+        return {"sent": False, "skipped": True, "reason": "PO is not a draft."}
+
+    upd = (
+        user.client.table("po")
+        .update({"status": "sent", "sent_by": user.id})
+        .eq("id", po_id)
+        .execute()
+    )
+    if not upd.data:
+        raise HTTPException(500, "Failed to update PO status.")
+
+    # Audit
+    user.client.table("audit_log").insert({
+        "actor_id": user.id,
+        "entity": "po",
+        "entity_id": po_id,
+        "action": "po_sent",
+        "detail": {"rm_sheet_id": row.get("rm_sheet_id")},
+    }).execute()
+
+    # Notify the PO team. Non-fatal: the PO status is already updated.
+    try:
+        notified = notify_po_drafted_client(user.client, po_id)
+    except Exception as e:
+        notified = {"sent": False, "error": str(e)}
+
+    return {"po_id": po_id, "status": "sent", "notified": notified}
