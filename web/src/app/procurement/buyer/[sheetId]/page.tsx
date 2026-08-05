@@ -5,6 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm, type AssignedItem } from "./po-form";
+import { SendPoBtn } from "./send-po-btn";
+
+/** The supplier a draft is for; drafts are split one per supplier. */
+function supplierOf(
+  lines: { supplier?: string | null }[]
+): string | null {
+  const names = [...new Set(lines.map((l) => l.supplier?.trim()).filter(Boolean))];
+  return names.length === 0 ? null : (names as string[]).join(", ");
+}
 
 export default async function BuyerSheetPage({
   params,
@@ -74,7 +83,7 @@ export default async function BuyerSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, created_at, doc_path, po_line(item_code, lot, location, ordered_qty, remark, item_master(name))"
+      "id, status, created_at, doc_path, po_line(item_code, lot, location, ordered_qty, supplier, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .eq("created_by", profile.userId)
@@ -119,6 +128,7 @@ export default async function BuyerSheetPage({
                   lot: string | null;
                   location: string | null;
                   ordered_qty: number;
+                  supplier: string | null;
                   remark: string | null;
                   item_master: { name?: string } | null;
                 }[]) ?? [];
@@ -127,16 +137,34 @@ export default async function BuyerSheetPage({
                   key={p.id}
                   className="rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900"
                 >
-                  <div className="flex items-center justify-between px-4 py-3 text-sm">
-                    <span className="font-mono text-xs">{p.id.slice(0, 8)}</span>
-                    <span className="text-neutral-500">
-                      {poLines.length} line(s)
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                    <span className="flex items-center gap-3">
+                      <span className="font-mono text-xs">{p.id.slice(0, 8)}</span>
+                      <span className="font-medium">
+                        {supplierOf(poLines) ?? "No supplier set"}
+                      </span>
+                      <span className="text-neutral-500">
+                        {poLines.length} line(s)
+                      </span>
                     </span>
                     <span className="flex items-center gap-3">
-                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800">
-                        {p.status}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          p.status === "draft"
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                            : "bg-neutral-100 dark:bg-neutral-800"
+                        }`}
+                      >
+                        {p.status === "draft" ? "draft — not sent" : p.status}
                       </span>
                       {p.doc_path ? "📎 doc" : "—"}
+                      {p.status === "draft" && (
+                        <SendPoBtn
+                          poId={p.id}
+                          supplier={supplierOf(poLines)}
+                          lineCount={poLines.length}
+                        />
+                      )}
                     </span>
                   </div>
                   <details className="group border-t border-black/5 dark:border-white/5">

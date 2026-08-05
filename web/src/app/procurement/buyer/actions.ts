@@ -157,14 +157,86 @@ export async function createPo(
       },
     });
 
-    // Hand off to the PO team. Non-fatal: the draft is already created.
-    await notifyPoDrafted(poId);
+    // Deliberately no notification here. A draft is the buyer's working copy —
+    // they raise it, revise it, may delete it — and the PO team neither sees it
+    // nor hears about it until the buyer sends it explicitly. See sendPoToTeam.
     created.push(poId);
   }
 
   revalidatePath(`/procurement/buyer/${sheetId}`);
   revalidatePath("/procurement/po-team");
   return { error: null, poId: created[0] ?? null, count: created.length };
+}
+
+export type SendPoState = { error: string | null; ok: boolean };
+
+/**
+ * Hand a draft to the PO team.
+ *
+ * This is the only point at which a PO becomes visible to them and the only
+ * point that sends mail. Until it runs the draft is private to the buyer, so
+ * they can revise or abandon it without anyone downstream reacting to a
+ * half-finished order.
+ */
+export async function sendPoToTeam(poId: string): Promise<SendPoState> {
+  const me = await requireRole("buyer");
+  const supabase = await createClient();
+  if (!poId) return { error: "Missing PO.", ok: false };
+
+  const { data: poRows, error: readErr } = await supabase
+    .from("po")
+    .select("id, status, created_by, rm_sheet_id, po_line(id, supplier)")
+    .eq("id", poId)
+    .limit(1);
+  if (readErr) return { error: readErr.message, ok: false };
+  const po = poRows?.[0];
+  if (!po) return { error: "PO not found.", ok: false };
+  if (po.created_by !== me.userId)
+    return { error: "This PO was not raised by you.", ok: false };
+  if (po.status !== "draft")
+    return { error: "This PO has already been sent.", ok: false };
+
+  const lines = (po.po_line as unknown as { id: string; supplier: string | null }[]) ?? [];
+  if (lines.length === 0)
+    return { error: "This PO has no lines.", ok: false };
+  // The PO team's whole job is to produce the document for a named supplier,
+  // so sending one without a supplier would hand them an unanswerable task.
+  if (lines.some((l) => !l.supplier?.trim()))
+    return {
+      error: "Set the supplier on every line before sending this PO.",
+      ok: false,
+    };
+
+  const { data: updated, error } = await supabase
+    .from("po")
+    .update({ status: "sent" })
+    .eq("id", poId)
+    .eq("status", "draft")
+    .select("id");
+  if (error) return { error: error.message, ok: false };
+  if ((updated?.length ?? 0) === 0)
+    return { error: "Could not send this PO — it may already have been sent.", ok: false };
+
+  await supabase.from("audit_log").insert({
+    actor_id: me.userId,
+    entity: "po",
+    entity_id: poId,
+    action: "po_sent_to_team",
+    detail: { lines: lines.length, supplier: lines[0]?.supplier ?? null },
+  });
+
+  const res = await notifyPoDrafted(poId);
+
+  revalidatePath(`/procurement/buyer/${po.rm_sheet_id}`);
+  revalidatePath("/procurement/po-team");
+  if (!res.sent)
+    return {
+      error: `PO sent to the PO team, but no mail went out. ${
+        res.reason ?? res.error ?? ""
+      }`,
+      ok: false,
+    };
+  return { error: null, ok: true };
 }
 
 /** A later supplier failing must not read as though nothing was created. */

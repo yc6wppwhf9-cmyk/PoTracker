@@ -53,6 +53,10 @@ export default async function PoTeamSheetPage({
       "id, status, doc_path, created_at, created_by, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
+    // Drafts belong to the buyer until they press Send. Showing them here would
+    // put half-finished orders in front of the PO team, who cannot tell an
+    // abandoned draft from one that is genuinely waiting for them.
+    .neq("status", "draft")
     .order("created_at", { ascending: false });
 
   // Required quantities from the RM sheet, keyed the same way the

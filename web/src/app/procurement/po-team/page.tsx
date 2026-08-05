@@ -9,14 +9,28 @@ export default async function PoTeamHome() {
 
   const { data: sheets } = await supabase
     .from("rm_sheet")
-    .select("id, style_ref, status, created_at, po(count)")
+    .select("id, style_ref, status, created_at")
     .order("created_at", { ascending: false });
+
+  // Counted here rather than as an embedded po(count), which would include the
+  // buyer's drafts — POs the PO team cannot see and must not be told to expect.
+  const { data: sentPos } = await supabase
+    .from("po")
+    .select("id, rm_sheet_id")
+    .neq("status", "draft");
+  const poCountBySheet = new Map<string, number>();
+  for (const p of sentPos ?? [])
+    poCountBySheet.set(
+      p.rm_sheet_id as string,
+      (poCountBySheet.get(p.rm_sheet_id as string) ?? 0) + 1
+    );
 
   return (
     <AppShell profile={profile}>
       <h1 className="text-2xl font-semibold tracking-tight">PO team</h1>
       <p className="mt-1 text-neutral-500">
-        Open a sheet to see its PO drafts and attach the finalised PO documents.
+        Open a sheet to see the POs buyers have sent you, and attach the
+        finalised PO documents.
       </p>
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
@@ -31,8 +45,7 @@ export default async function PoTeamHome() {
           </thead>
           <tbody>
             {(sheets ?? []).map((s) => {
-              const poCount =
-                (s.po as unknown as { count: number }[])?.[0]?.count ?? 0;
+              const poCount = poCountBySheet.get(s.id) ?? 0;
               return (
                 <tr
                   key={s.id}
