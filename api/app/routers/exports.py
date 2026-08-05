@@ -184,7 +184,7 @@ def export_reconciliation(
         for i, r in enumerate(group, start=2):
             req = _num(r.get("required"))
             for c, (field, _) in enumerate(DETAIL_COLUMNS, start=1):
-                elif field == "variance_pct":
+                if field == "variance_pct":
                     # No requirement means no denominator — an extra line has
                     # nothing to be a percentage of.
                     v = (_num(r.get("variance")) / req) if req else None
