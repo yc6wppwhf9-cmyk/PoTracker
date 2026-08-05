@@ -9,10 +9,10 @@ export default async function MdDashboardPage() {
   const profile = await requireRole("md", "admin");
   const supabase = await createClient();
 
-  // Promotes escalations past their SLA and mails the MD about them. pg_cron
-  // was meant to do the promotion but is not installed, so this sweep is the
-  // only thing that sets `md_escalated`. Idempotent — already notified
-  // escalations are recorded in audit_log — so a page load is safe.
+  // Promotes escalations past their SLA and mails the MD about them, rather
+  // than depending on a pg_cron job being scheduled to set `md_escalated`.
+  // Idempotent — already notified escalations are recorded in audit_log — so
+  // running it on page load is safe.
   await notifyMdEscalations();
 
   // Fetch approvals sent to MD with sheet details

@@ -296,13 +296,12 @@ def notify_md_escalations(user: CurrentUser = Depends(get_current_user)):
     The MD is mailed for escalations only — not for every approval package —
     so the alert means something when it arrives.
 
-    This sweep both promotes and mails. The design originally left the
-    promotion to pg_cron, but that extension is not installed on this project,
-    so nothing ever set `md_escalated` and the MD dashboard stayed empty no
-    matter how far past the SLA an escalation ran. Doing it here means the
-    escalation path works with no scheduler at all; if pg_cron is added later
-    the two agree, because both promote exactly the rows whose deadline has
-    passed and re-promoting is a no-op.
+    This sweep both promotes and mails. The design left promotion to pg_cron;
+    the extension is installed, but nothing else in this codebase ever writes
+    `md_escalated`, so if no job is actually scheduled an escalation would sit
+    at `open` past its deadline and never reach the MD. Promoting here makes
+    the path work either way: both promote exactly the rows whose deadline has
+    passed, and re-promoting is a no-op, so a scheduled job does not conflict.
 
     It is idempotent: escalation ids already mailed are recorded in audit_log
     and never mailed twice.
