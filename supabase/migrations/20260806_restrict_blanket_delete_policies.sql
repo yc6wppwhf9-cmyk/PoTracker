@@ -1,3 +1,8 @@
+-- SUPERSEDED by 20260807_admin_only_sheet_deletion.sql, which narrows the
+-- purchase_head grants below to admin. Apply that file after this one — or
+-- instead of it, since it drops these policy names by name first. Kept for the
+-- record of what the original state was.
+--
 -- SECURITY: five tables allow any signed-in user to delete any row.
 --
 --   "Allow delete on approval"        DELETE using true

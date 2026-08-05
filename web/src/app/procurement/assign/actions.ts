@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth";
+import { requireRole, requireUser } from "@/lib/auth";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { notifyBuyersAssigned } from "@/lib/notify";
 
@@ -132,9 +132,41 @@ export async function saveAssignments(
   return { error: null, ok: true };
 }
 
+/**
+ * Delete a sheet and everything hanging off it.
+ *
+ * Two deliberate restrictions, because this cascade is irreversible:
+ *
+ *  - Admin only. The purchase head used to hold this, for no better reason
+ *    than the button living on their screen.
+ *  - Refused once any buyer is assigned. Assignment is the point where the
+ *    sheet stops being a draft and becomes work other people are doing, and
+ *    everything downstream — POs, approvals, escalations — hangs off it.
+ *
+ * The role is checked without requireRole() because that redirects, which in a
+ * server action surfaces as a confusing navigation rather than a message.
+ */
 export async function deleteSheetAction(sheetId: string) {
-  const me = await requireRole("purchase_head");
+  const me = await requireUser();
+  if (me.role !== "admin")
+    throw new Error(
+      "Only an administrator can delete an RM sheet. Ask an admin if this " +
+        "sheet was uploaded in error."
+    );
   const supabase = await createClient();
+
+  const { count: assignedCount } = await supabase
+    .from("rm_requirement")
+    .select("id", { count: "exact", head: true })
+    .eq("rm_sheet_id", sheetId)
+    .not("assigned_buyer", "is", null);
+
+  if ((assignedCount ?? 0) > 0)
+    throw new Error(
+      `This sheet cannot be deleted — ${assignedCount} line(s) are already ` +
+        "assigned to buyers. Deleting it would destroy their POs and any " +
+        "approvals raised against it."
+    );
 
   // Record what is about to be destroyed while it can still be read. This
   // cascade removes a sheet, its requirements, its POs and its approvals with

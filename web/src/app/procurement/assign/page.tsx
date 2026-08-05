@@ -54,7 +54,10 @@ export default async function AssignListPage() {
                   >
                     Assign
                   </Link>
-                  <DeleteSheetBtn sheetId={s.id} />
+                  {/* Deletion is admin-only and refused once buyers are
+                      assigned, so the purchase head is not offered a button
+                      that would only refuse them. */}
+                  {profile.role === "admin" && <DeleteSheetBtn sheetId={s.id} />}
                 </td>
               </tr>
             ))}
