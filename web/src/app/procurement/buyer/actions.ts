@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { fetchAll } from "@/lib/supabase/fetch-all";
+import { notifyPoDrafted } from "@/lib/notify";
 
 export type CreatePoState = { error: string | null; poId: string | null };
 
@@ -119,6 +120,10 @@ export async function createPo(
     detail: { sheet_id: sheetId, lines: lines.length },
   });
 
+  // Hand off to the PO team. Non-fatal: the draft is already created.
+  await notifyPoDrafted(poId);
+
   revalidatePath(`/procurement/buyer/${sheetId}`);
+  revalidatePath("/procurement/po-team");
   return { error: null, poId };
 }

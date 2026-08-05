@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.parsing import parse_rm_sheet
+from app.routers.notify import notify_sheet_uploaded
 from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/rm-sheets", tags=["rm-sheets"])
@@ -378,6 +379,13 @@ def upload_rm_sheet(
             },
         }
     ).execute()
+
+    # Hand off to the purchase head. Never fatal: the sheet is already stored,
+    # so a mail problem must not fail the upload.
+    try:
+        notify_sheet_uploaded(user.client, sheet_id, len(to_insert), distinct_items)
+    except Exception as e:
+        warnings.append(f"Could not notify the purchase head ({e}).")
 
     return {
         "rm_sheet_id": sheet_id,

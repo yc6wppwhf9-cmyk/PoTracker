@@ -7,6 +7,7 @@ import openpyxl
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.auth import CurrentUser, get_current_user, require_roles
+from app.routers.notify import notify_po_attached
 from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/pos", tags=["pos"])
@@ -125,7 +126,19 @@ def upload_po_document(
         }
     ).execute()
 
-    return {"po_id": po_id, "doc_path": path, "status": "uploaded"}
+    # Hand off to the approver. Never fatal: the document is already stored.
+    notified: dict[str, Any]
+    try:
+        notified = notify_po_attached(user.client, po_id)
+    except Exception as e:
+        notified = {"sent": False, "error": str(e)}
+
+    return {
+        "po_id": po_id,
+        "doc_path": path,
+        "status": "uploaded",
+        "notified": notified,
+    }
 
 
 @router.post("/import-register")

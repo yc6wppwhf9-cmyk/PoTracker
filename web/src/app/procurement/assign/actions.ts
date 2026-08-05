@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { fetchAll } from "@/lib/supabase/fetch-all";
+import { notifyBuyersAssigned } from "@/lib/notify";
 
 export type AssignState = { error: string | null; ok: boolean };
 
@@ -121,8 +122,13 @@ export async function saveAssignments(
     detail: { lines_updated: updated, all_assigned: allAssigned },
   });
 
+  // Tell each buyer about the items assigned to them. Non-fatal: the
+  // assignment is already saved.
+  if (updated > 0) await notifyBuyersAssigned(sheetId);
+
   revalidatePath(`/procurement/assign/${sheetId}`);
   revalidatePath("/procurement/assign");
+  revalidatePath("/procurement/buyer");
   return { error: null, ok: true };
 }
 

@@ -3,39 +3,51 @@
 The Resend key lives here rather than in the Next.js app so all third-party
 secrets sit behind one backend.
 
-Each endpoint sends one *named* notification and resolves its own recipients
-and body from the database. Deliberately not a generic send-email endpoint: one
-that accepted arbitrary addresses and HTML would be an open relay for anyone
-holding a staff login, letting them send whatever they liked from the company's
-sending domain.
+Each notification is *named*: it resolves its own recipients and body from the
+database. Deliberately not a generic send-email endpoint — one that accepted
+arbitrary addresses and HTML would be an open relay for anyone holding a staff
+login, able to send whatever they liked from the company's sending domain.
+
+Notifications follow the workflow handoffs, so each role is told when the work
+reaches them:
+
+    uploader uploads sheet   -> purchase head
+    purchase head assigns    -> each assigned buyer (their own items only)
+    buyer drafts a PO        -> PO team
+    PO document attached     -> approver
+    approver sends to MD     -> MD
+    approver escalates       -> the assigned buyer
+    MD decides               -> purchase head + uploader
 """
 from __future__ import annotations
 
 import html
+from collections import Counter
 from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from supabase import Client
 
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.config import get_settings
+from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/notify", tags=["notify"])
 
 RESEND_URL = "https://api.resend.com/emails"
 
 
-def _app_url(path: str) -> str:
-    base = get_settings().app_url.rstrip("/")
-    return f"{base}{path}"
+def app_url(path: str) -> str:
+    return f"{get_settings().app_url.rstrip('/')}{path}"
 
 
-def _send(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
+def send_email(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
     """Deliver via Resend, degrading gracefully.
 
     A missing key or no recipients must never break the workflow that triggered
-    the notification — the approval itself already succeeded by this point.
+    the notification — that work has already been committed by this point.
     """
     settings = get_settings()
     recipients = [t for t in to if t]
@@ -48,9 +60,7 @@ def _send(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
         }
 
     # Testing override: send everything to one address instead of the real
-    # recipients, so exercising the workflow cannot email actual staff. The
-    # intended recipients are shown in the body, and the subject is tagged, so
-    # a redirected message can never be mistaken for a real one.
+    # recipients, so exercising the workflow cannot email actual staff.
     intended = recipients
     override = settings.notify_override_to.strip()
     if override:
@@ -83,6 +93,7 @@ def _send(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
     if res.status_code >= 300:
         print(f"[notify failed] {res.status_code} {res.text[:300]}")
         return {"sent": False, "status": res.status_code, "detail": res.text[:300]}
+
     result: dict[str, Any] = {"sent": True, "recipients": len(recipients)}
     if override:
         result["redirected_to"] = override
@@ -90,25 +101,21 @@ def _send(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
     return result
 
 
-def _emails_with_role(user: CurrentUser, role: str) -> list[str]:
-    res = user.client.table("profiles").select("email").eq("role", role).execute()
+def emails_with_role(client: Client, role: str) -> list[str]:
+    res = client.table("profiles").select("email").eq("role", role).execute()
     return [r["email"] for r in (res.data or []) if r.get("email")]
 
 
-def _email_of(user: CurrentUser, user_id: str) -> Optional[str]:
+def email_of(client: Client, user_id: str) -> Optional[str]:
     res = (
-        user.client.table("profiles")
-        .select("email")
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
+        client.table("profiles").select("email").eq("id", user_id).limit(1).execute()
     )
     return (res.data or [{}])[0].get("email")
 
 
-def _sheet(user: CurrentUser, sheet_id: str) -> dict[str, Any]:
+def get_sheet(client: Client, sheet_id: str) -> dict[str, Any]:
     res = (
-        user.client.table("rm_sheet")
+        client.table("rm_sheet")
         .select("id, style_ref, uploaded_by")
         .eq("id", sheet_id)
         .limit(1)
@@ -117,6 +124,165 @@ def _sheet(user: CurrentUser, sheet_id: str) -> dict[str, Any]:
     if not res.data:
         raise HTTPException(404, "RM sheet not found.")
     return res.data[0]
+
+
+def _ref(sheet: dict[str, Any]) -> str:
+    return html.escape(sheet.get("style_ref") or str(sheet.get("id", ""))[:8])
+
+
+def _button(href: str, label: str) -> str:
+    return f'<p><a href="{href}">{label}</a></p>'
+
+
+# --------------------------------------------------------------------------
+# 1. Uploader uploaded a sheet -> purchase head
+# --------------------------------------------------------------------------
+def notify_sheet_uploaded(
+    client: Client, sheet_id: str, lines: int, distinct_items: int
+) -> dict[str, Any]:
+    sheet = get_sheet(client, sheet_id)
+    ref = _ref(sheet)
+    body = (
+        f"<p>A new RM requirement sheet <strong>{ref}</strong> has been uploaded "
+        "and is ready for buyer assignment.</p>"
+        f"<p>{lines:,} requirement line(s) across {distinct_items:,} item(s).</p>"
+        + _button(app_url(f"/procurement/assign/{sheet_id}"), "Assign buyers")
+    )
+    return send_email(
+        emails_with_role(client, "purchase_head"),
+        f"RM sheet ready for assignment — {sheet.get('style_ref') or sheet_id[:8]}",
+        body,
+    )
+
+
+# --------------------------------------------------------------------------
+# 4. PO document attached -> approver
+# --------------------------------------------------------------------------
+def notify_po_attached(client: Client, po_id: str) -> dict[str, Any]:
+    po = (
+        client.table("po")
+        .select("id, rm_sheet_id")
+        .eq("id", po_id)
+        .limit(1)
+        .execute()
+    )
+    if not po.data:
+        return {"sent": False, "skipped": True, "reason": "PO not found"}
+    sheet_id = po.data[0]["rm_sheet_id"]
+    sheet = get_sheet(client, sheet_id)
+    ref = _ref(sheet)
+    body = (
+        f"<p>A purchase order document has been attached for <strong>{ref}</strong>.</p>"
+        "<p>The reconciliation is ready for your review.</p>"
+        + _button(
+            app_url(f"/procurement/reconciliation/{sheet_id}"),
+            "Review reconciliation",
+        )
+    )
+    return send_email(
+        emails_with_role(client, "approver"),
+        f"PO attached — ready for review ({sheet.get('style_ref') or sheet_id[:8]})",
+        body,
+    )
+
+
+# --------------------------------------------------------------------------
+# HTTP endpoints (called from Next.js server actions)
+# --------------------------------------------------------------------------
+class SheetOnly(BaseModel):
+    rm_sheet_id: str
+
+
+@router.post("/buyers-assigned")
+def notify_buyers_assigned(
+    payload: SheetOnly, user: CurrentUser = Depends(get_current_user)
+):
+    """Purchase head assigned buyers — tell each buyer about their own items.
+
+    Assignments are read from the database rather than taken from the request,
+    so a buyer can only ever be told about work actually assigned to them.
+    """
+    require_roles(user, "purchase_head")
+    sheet = get_sheet(user.client, payload.rm_sheet_id)
+    ref = _ref(sheet)
+
+    rows = fetch_all(
+        lambda: user.client.table("rm_requirement")
+        .select("assigned_buyer")
+        .eq("rm_sheet_id", payload.rm_sheet_id)
+        .not_.is_("assigned_buyer", "null"),
+        order_by="id",
+    )
+    per_buyer = Counter(r["assigned_buyer"] for r in rows if r.get("assigned_buyer"))
+    if not per_buyer:
+        return {"sent": False, "skipped": True, "reason": "no assignments"}
+
+    results = []
+    for buyer_id, count in per_buyer.items():
+        to = email_of(user.client, buyer_id)
+        body = (
+            f"<p>You have been assigned <strong>{count:,} line(s)</strong> on RM "
+            f"sheet <strong>{ref}</strong>.</p>"
+            "<p>Review the items, set the supplier, rate and MOQ, then raise your "
+            "PO drafts.</p>"
+            + _button(
+                app_url(f"/procurement/buyer/{payload.rm_sheet_id}"),
+                "Open your workspace",
+            )
+        )
+        results.append(
+            send_email(
+                [to] if to else [],
+                f"{count} item(s) assigned to you — {sheet.get('style_ref') or ''}".strip(),
+                body,
+            )
+        )
+    return {"buyers": len(per_buyer), "results": results}
+
+
+class PoDrafted(BaseModel):
+    po_id: str
+
+
+@router.post("/po-drafted")
+def notify_po_drafted(
+    payload: PoDrafted, user: CurrentUser = Depends(get_current_user)
+):
+    """Buyer raised a PO draft — tell the PO team to prepare the document."""
+    require_roles(user, "buyer")
+    po = (
+        user.client.table("po")
+        .select("id, rm_sheet_id")
+        .eq("id", payload.po_id)
+        .limit(1)
+        .execute()
+    )
+    if not po.data:
+        raise HTTPException(404, "PO not found.")
+    sheet_id = po.data[0]["rm_sheet_id"]
+    sheet = get_sheet(user.client, sheet_id)
+    ref = _ref(sheet)
+
+    lines = (
+        user.client.table("po_line")
+        .select("ordered_qty")
+        .eq("po_id", payload.po_id)
+        .execute()
+    ).data or []
+    total = sum(float(l.get("ordered_qty") or 0) for l in lines)
+
+    body = (
+        f"<p>A buyer has drafted a purchase order on <strong>{ref}</strong>.</p>"
+        f"<p>{len(lines):,} line(s), {total:,.0f} total quantity.</p>"
+        "<p>Confirm the quantities against the signed PO, then attach the "
+        "document.</p>"
+        + _button(app_url(f"/procurement/po-team/{sheet_id}"), "Open PO team")
+    )
+    return send_email(
+        emails_with_role(user.client, "po_team"),
+        f"New PO draft to process — {sheet.get('style_ref') or sheet_id[:8]}",
+        body,
+    )
 
 
 class MdApproval(BaseModel):
@@ -130,14 +296,16 @@ def notify_md_approval(
 ):
     """Approver sent a package to the MD."""
     require_roles(user, "approver")
-    sheet = _sheet(user, payload.rm_sheet_id)
-    ref = html.escape(sheet.get("style_ref") or payload.rm_sheet_id[:8])
+    sheet = get_sheet(user.client, payload.rm_sheet_id)
+    ref = _ref(sheet)
     body = (
         f"<p>A reconciled PO for <strong>{ref}</strong> is awaiting your decision.</p>"
         f"<p><strong>Summary:</strong> {html.escape(payload.summary)}</p>"
-        f'<p><a href="{_app_url("/procurement/md")}">Open the MD dashboard</a></p>'
+        + _button(app_url("/procurement/md"), "Open the MD dashboard")
     )
-    return _send(_emails_with_role(user, "md"), "PO ready for your approval", body)
+    return send_email(
+        emails_with_role(user.client, "md"), "PO ready for your approval", body
+    )
 
 
 class BuyerEscalation(BaseModel):
@@ -155,24 +323,22 @@ def notify_buyer_escalation(
 ):
     """Approver escalated a flagged material to its assigned buyer."""
     require_roles(user, "approver")
-    _sheet(user, payload.rm_sheet_id)  # 404 if the sheet is not visible
+    get_sheet(user.client, payload.rm_sheet_id)  # 404 if not visible
 
-    to = _email_of(user, payload.buyer_id)
+    to = email_of(user.client, payload.buyer_id)
     code = html.escape(payload.item_code)
     lot = f" / {html.escape(payload.lot)}" if payload.lot else ""
-    reason = (
-        f"<p>Reason: {html.escape(payload.reason)}</p>" if payload.reason else ""
-    )
+    reason = f"<p>Reason: {html.escape(payload.reason)}</p>" if payload.reason else ""
     body = (
         f"<p>An approver escalated <strong>{code}</strong>{lot} to you.</p>{reason}"
         f"<p>Please resolve within {payload.sla_hours} working hours, or it "
         "auto-escalates to the MD.</p>"
-        f'<p><a href="{_app_url("/procurement/buyer")}">Open your workspace</a></p>'
+        + _button(app_url("/procurement/buyer"), "Open your workspace")
     )
     subject = f"Action needed: {payload.item_code}"
     if payload.lot:
         subject += f" ({payload.lot})"
-    return _send([to] if to else [], subject, body)
+    return send_email([to] if to else [], subject, body)
 
 
 class MdDecision(BaseModel):
@@ -189,18 +355,17 @@ def notify_md_decision(
     if payload.decision not in ("approved", "rejected"):
         raise HTTPException(400, "decision must be 'approved' or 'rejected'.")
 
-    sheet = _sheet(user, payload.rm_sheet_id)
-    ref = html.escape(sheet.get("style_ref") or "the sheet")
+    sheet = get_sheet(user.client, payload.rm_sheet_id)
+    ref = _ref(sheet)
 
-    recipients: set[str] = set(_emails_with_role(user, "purchase_head"))
+    recipients: set[str] = set(emails_with_role(user.client, "purchase_head"))
     if sheet.get("uploaded_by"):
-        uploader = _email_of(user, sheet["uploaded_by"])
+        uploader = email_of(user.client, sheet["uploaded_by"])
         if uploader:
             recipients.add(uploader)
 
     body = (
         f"<p>The Managing Director <strong>{html.escape(payload.decision)}</strong> "
-        f"the PO for {ref}.</p>"
-        f'<p><a href="{_app_url("/dashboard")}">Open the app</a></p>'
+        f"the PO for {ref}.</p>" + _button(app_url("/dashboard"), "Open the app")
     )
-    return _send(sorted(recipients), f"MD {payload.decision} — {ref}", body)
+    return send_email(sorted(recipients), f"MD {payload.decision} — {ref}", body)

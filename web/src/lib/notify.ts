@@ -51,6 +51,16 @@ async function notify(path: string, body: unknown): Promise<NotifyResult> {
   }
 }
 
+/** Purchase head assigned buyers — each buyer is told about their own items. */
+export function notifyBuyersAssigned(rmSheetId: string) {
+  return notify("buyers-assigned", { rm_sheet_id: rmSheetId });
+}
+
+/** Buyer raised a PO draft — the PO team prepares the document. */
+export function notifyPoDrafted(poId: string) {
+  return notify("po-drafted", { po_id: poId });
+}
+
 /** Approver sent a reconciled package to the MD. */
 export function notifyMdApproval(rmSheetId: string, summary: string) {
   return notify("md-approval", { rm_sheet_id: rmSheetId, summary });
