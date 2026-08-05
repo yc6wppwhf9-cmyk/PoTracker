@@ -292,7 +292,6 @@ export async function deleteSheetAction(
   }
 
   revalidatePath("/procurement/assign");
-  revalidatePath("/procurement/reconciliation");
   revalidatePath("/procurement/buyer");
   revalidatePath("/procurement/approver");
   revalidatePath("/procurement/md");

@@ -4,15 +4,11 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
-import {
-  STATUS_META,
-  STATUS_ORDER,
-  statusVar,
-  type ReconRow,
-} from "@/lib/reconciliation";
-import { ReconTabs } from "../../reconciliation/[sheetId]/recon-tabs";
+import { type ReconRow } from "@/lib/reconciliation";
+import { ReconTabs } from "@/components/recon/recon-tabs";
 import { submitApproveAndSend } from "../actions";
 import { EscalationPanel } from "./escalation-panel";
+import { ExportButton } from "@/components/recon/export-button";
 
 export default async function ApproverSheetDetailPage({
   params,
@@ -118,11 +114,16 @@ export default async function ApproverSheetDetailPage({
         </form>
       </div>
 
-      {/* Detailed line reconciliation */}
+      {/* Detailed line reconciliation. The standalone Reconciliation tab is
+          gone, so the KPI export lives here — the approval stage is where it
+          was wanted, and it was previously reachable only from that tab. */}
       <div className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold tracking-tight">
-          Detailed Item Reconciliation
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Detailed Item Reconciliation
+          </h2>
+          {recon.length > 0 && <ExportButton sheetId={sheetId} />}
+        </div>
         {recon.length === 0 ? (
           <p className="rounded-2xl border border-black/10 bg-white px-4 py-8 text-center text-neutral-500 dark:border-white/10 dark:bg-neutral-900">
             No items to display for this sheet.

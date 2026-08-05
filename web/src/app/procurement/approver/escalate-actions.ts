@@ -85,7 +85,6 @@ export async function raiseEscalation(
   await notifyMdEscalations();
 
   revalidatePath(`/procurement/approver/${sheetId}`);
-  revalidatePath(`/procurement/reconciliation/${sheetId}`);
   revalidatePath("/procurement/buyer");
   return { error: null, ok: true };
 }

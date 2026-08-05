@@ -12,6 +12,9 @@ type FlaggedItem = {
   status: string | null;
   buyerId: string;
   buyerName: string;
+  /** Which PO covers this line, if one has been raised. */
+  poNumbers: string[];
+  suppliers: string[];
 };
 
 type Escalation = {
@@ -73,6 +76,34 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
       (profs ?? []).map((p) => [p.id, p.full_name ?? p.email ?? p.id.slice(0, 8)])
     );
 
+    // The PO covering each flagged line. The approver chases a supplier about a
+    // specific order, so the PO number and supplier are what make the escalation
+    // actionable — without them the message is "this item is short" with no
+    // reference the supplier recognises. Drafts are excluded: an unsent draft is
+    // not an order anyone can be held to.
+    const poLines = await fetchAll((from, to) =>
+      supabase
+        .from("po_line")
+        .select("item_code, lot, supplier, po!inner(po_number, rm_sheet_id, status)")
+        .eq("po.rm_sheet_id", sheetId)
+        .neq("po.status", "draft")
+        .order("id")
+        .range(from, to)
+    );
+    const poByKey = new Map<string, { numbers: Set<string>; suppliers: Set<string> }>();
+    for (const l of poLines) {
+      if (!l.item_code) continue;
+      const k = lotKey(l.item_code as string, (l.lot as string | null) ?? null);
+      const po = (Array.isArray(l.po) ? l.po[0] : l.po) as
+        | { po_number: string | null }
+        | null;
+      const entry = poByKey.get(k) ?? { numbers: new Set(), suppliers: new Set() };
+      if (po?.po_number) entry.numbers.add(po.po_number);
+      const sup = (l.supplier as string | null)?.trim();
+      if (sup) entry.suppliers.add(sup);
+      poByKey.set(k, entry);
+    }
+
     // Flagged lines with no assigned buyer cannot be escalated — there is
     // nobody to escalate to. Count them so the approver knows they exist
     // instead of them silently vanishing from the list.
@@ -86,6 +117,7 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
         unassignedFlagged += 1;
         continue;
       }
+      const po = poByKey.get(lotKey(r.item_code, r.lot as string | null));
       flagged.push({
         item_code: r.item_code,
         lot: (r.lot as string | null) ?? null,
@@ -93,6 +125,8 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
         status: r.status,
         buyerId: bId,
         buyerName: nameById.get(bId) ?? "—",
+        poNumbers: [...(po?.numbers ?? [])],
+        suppliers: [...(po?.suppliers ?? [])],
       });
     }
 
@@ -109,6 +143,10 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
   }, [supabase, sheetId]);
 
   useEffect(() => {
+    // The panel loads its own data because it also reloads after an escalation
+    // is raised, without navigating. `load` sets state only after awaiting, but
+    // the rule cannot see through the async callback.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 
@@ -166,6 +204,8 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">Lot</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">PO number</th>
+                <th className="px-4 py-3">Supplier</th>
                 <th className="px-4 py-3">Buyer</th>
                 <th className="px-4 py-3">Reason</th>
                 <th className="px-4 py-3"></th>
@@ -188,6 +228,19 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
                     </td>
                     <td className="px-4 py-3 text-neutral-500">{it.lot ?? "—"}</td>
                     <td className="px-4 py-3 text-neutral-500">{it.status}</td>
+                    <td className="px-4 py-3">
+                      {it.poNumbers.length > 0 ? (
+                        <span className="font-mono text-xs font-semibold">
+                          {it.poNumbers.join(", ")}
+                        </span>
+                      ) : (
+                        /* No PO yet is itself the thing to escalate about. */
+                        <span className="text-xs text-neutral-400">no PO raised</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-600 dark:text-neutral-300">
+                      {it.suppliers.length > 0 ? it.suppliers.join(", ") : "—"}
+                    </td>
                     <td className="px-4 py-3">{it.buyerName}</td>
                     <td className="px-4 py-3">
                       {open ? (

@@ -89,7 +89,6 @@ export async function savePoLines(
   });
 
   revalidatePath("/procurement/po-team");
-  revalidatePath("/procurement/reconciliation");
   return { error: null, ok: true };
 }
 

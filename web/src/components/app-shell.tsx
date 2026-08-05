@@ -17,7 +17,6 @@ const NAV: NavItem[] = [
   { href: "/procurement/assign", label: "Assign Buyers", roles: ["purchase_head"], ready: true },
   { href: "/procurement/buyer", label: "Buyer Workspace", roles: ["buyer"], ready: true },
   { href: "/procurement/po-team", label: "PO Team", roles: ["po_team"], ready: true },
-  { href: "/procurement/reconciliation", label: "Reconciliation", roles: ["purchase_head", "po_team", "approver", "md"], ready: true },
   { href: "/procurement/approver", label: "Approvals", roles: ["approver"], ready: true },
   { href: "/procurement/md", label: "MD Dashboard", roles: ["md"], ready: true },
   { href: "/admin/item-master", label: "Item Catalogue", roles: ["admin"], ready: true },

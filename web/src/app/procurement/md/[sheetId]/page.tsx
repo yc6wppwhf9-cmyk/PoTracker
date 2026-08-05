@@ -10,7 +10,7 @@ import {
   statusVar,
   type ReconRow,
 } from "@/lib/reconciliation";
-import { ReconTabs } from "../../reconciliation/[sheetId]/recon-tabs";
+import { ReconTabs } from "@/components/recon/recon-tabs";
 import { submitMdDecision } from "../actions";
 
 export default async function MdSheetDetailPage({

@@ -54,11 +54,6 @@ async function dataFor(
             label: "Assign buyers",
             desc: "Route each material category to specialized buyers.",
           },
-          {
-            href: "/procurement/reconciliation",
-            label: "Review reconciliation",
-            desc: "See purchased vs required line status.",
-          },
         ],
       };
     }
@@ -116,11 +111,6 @@ async function dataFor(
             label: "Review Approvals",
             desc: "Verify purchases and send to the Managing Director.",
           },
-          {
-            href: "/procurement/reconciliation",
-            label: "Reconciliation Overview",
-            desc: "See purchased vs required line breakdown.",
-          },
         ],
       };
     }
@@ -139,11 +129,6 @@ async function dataFor(
             href: "/procurement/md",
             label: "MD Approval Dashboard",
             desc: "Review and grant final sign-off on PO packages.",
-          },
-          {
-            href: "/procurement/reconciliation",
-            label: "View Reconciliation",
-            desc: "See current procurement status.",
           },
         ],
       };
