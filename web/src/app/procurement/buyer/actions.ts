@@ -185,10 +185,10 @@ function partial(created: string[], message: string, supplier: string): string {
  * the sending credentials. The API marks the PO as sent and notifies the PO
  * team. The web action mirrors the API result and revalidates pages.
  */
-export async function sendPo(formData: FormData): Promise<{ error: string | null } | void> {
-  const me = await requireRole("buyer");
+export async function sendPo(formData: FormData): Promise<void> {
+  await requireRole("buyer");
   const poId = String(formData.get("po_id") ?? "");
-  if (!poId) return { error: "Missing PO." };
+  if (!poId) throw new Error("Missing PO.");
 
   const supabase = await createClient();
   const {
@@ -196,8 +196,8 @@ export async function sendPo(formData: FormData): Promise<{ error: string | null
   } = await supabase.auth.getSession();
   const base =
     process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (!base) return { error: "API_BASE_URL not configured on the web app." };
-  if (!session?.access_token) return { error: "Session expired; sign in again." };
+  if (!base) throw new Error("API_BASE_URL not configured on the web app.");
+  if (!session?.access_token) throw new Error("Session expired; sign in again.");
 
   const res = await fetch(`${base.replace(/\/+$/,'')}/pos/${poId}/send`, {
     method: "POST",
@@ -209,7 +209,7 @@ export async function sendPo(formData: FormData): Promise<{ error: string | null
 
   const raw = await res.text();
   if (!res.ok) {
-    return { error: `Send failed: HTTP ${res.status} ${raw.slice(0,200)}` };
+    throw new Error(`Send failed: HTTP ${res.status} ${raw.slice(0,200)}`);
   }
   // Try to parse JSON but ignore if not JSON.
   try {
@@ -223,5 +223,5 @@ export async function sendPo(formData: FormData): Promise<{ error: string | null
     }
   } catch {}
 
-  return { error: null };
+  return;
 }
