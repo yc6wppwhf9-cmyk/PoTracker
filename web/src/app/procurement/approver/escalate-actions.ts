@@ -10,7 +10,8 @@ const WORKING_HOURS_SLA = 9;
 export type EscalateState = { error: string | null; ok: boolean };
 
 /** Approver escalates a flagged material to its assigned buyer, with a
- *  9-working-hour SLA after which pg_cron auto-escalates it to the MD. */
+ *  9-working-hour SLA after which it auto-escalates to the MD. The promotion
+ *  happens in the /notify/md-escalations sweep below, not in a scheduler. */
 export async function raiseEscalation(
   _prev: EscalateState,
   formData: FormData

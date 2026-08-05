@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import html
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -295,11 +296,26 @@ def notify_md_escalations(user: CurrentUser = Depends(get_current_user)):
     The MD is mailed for escalations only — not for every approval package —
     so the alert means something when it arrives.
 
-    pg_cron flips an overdue escalation to `md_escalated` but cannot reach this
-    service, so this sweep does the mailing. It is idempotent: escalation ids
-    already mailed are recorded in audit_log and never mailed twice.
+    This sweep both promotes and mails. The design originally left the
+    promotion to pg_cron, but that extension is not installed on this project,
+    so nothing ever set `md_escalated` and the MD dashboard stayed empty no
+    matter how far past the SLA an escalation ran. Doing it here means the
+    escalation path works with no scheduler at all; if pg_cron is added later
+    the two agree, because both promote exactly the rows whose deadline has
+    passed and re-promoting is a no-op.
+
+    It is idempotent: escalation ids already mailed are recorded in audit_log
+    and never mailed twice.
     """
     require_roles(user, "approver", "md", "purchase_head")
+
+    # Promote anything past its deadline that the buyer has not resolved.
+    # `resolved` rows are excluded by the status filter, so a buyer who
+    # answered in time is never escalated.
+    now = datetime.now(timezone.utc).isoformat()
+    user.client.table("escalation").update(
+        {"status": "md_escalated", "escalated_to_md_at": now}
+    ).eq("status", "open").lte("escalate_after", now).execute()
 
     open_rows = (
         user.client.table("escalation")

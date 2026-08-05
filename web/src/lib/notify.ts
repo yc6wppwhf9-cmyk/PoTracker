@@ -65,9 +65,12 @@ export function notifyPoDrafted(poId: string) {
  * Mail the MD about items escalated to them past the SLA.
  *
  * The MD is mailed for escalations only — not for every approval package — so
- * the alert still means something. pg_cron flips an overdue escalation to
- * `md_escalated` but cannot reach the API, so this sweep does the mailing;
- * it is idempotent, so calling it on page load is safe.
+ * the alert still means something.
+ *
+ * The sweep also promotes escalations whose SLA has passed. pg_cron was meant
+ * to do that, but it is not installed on this project, so nothing set
+ * `md_escalated` and the MD dashboard stayed empty. Both operations are
+ * idempotent, so calling this on page load is safe.
  */
 export function notifyMdEscalations() {
   return notify("md-escalations", {});
