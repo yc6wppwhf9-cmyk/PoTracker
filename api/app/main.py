@@ -29,7 +29,21 @@ app.include_router(exports.router)
 app.include_router(notify.router)
 
 
-@app.get("/health")
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    """Render's default health check sends `HEAD /`, which otherwise logs a 404
+    on every ping. HEAD is listed explicitly: a plain @app.get would answer it
+    with 405, which is quieter but still an error. Points at the endpoint that
+    reports real health."""
+    return {
+        "service": "RM → PO Reconciliation API",
+        "status": "ok",
+        "health": "/health",
+        "docs": "/docs",
+    }
+
+
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     """Liveness plus enough configuration to diagnose a silent deployment.
 
