@@ -29,7 +29,7 @@ export default async function BuyerSheetPage({
   const lines = await fetchAll((from, to) =>
     supabase
       .from("rm_requirement")
-      .select("item_code, lot, location, required_qty, item_master(name, category, moq)")
+      .select("item_code, lot, location, required_qty, item_master(name, category)")
       .eq("rm_sheet_id", sheetId)
       .eq("assigned_buyer", profile.userId)
       .not("item_code", "is", null)
@@ -42,7 +42,7 @@ export default async function BuyerSheetPage({
   const agg = new Map<string, AssignedItem>();
   for (const l of lines) {
     const im = l.item_master as
-      | { name?: string; category?: string; moq?: number }
+      | { name?: string; category?: string }
       | null;
     const code = l.item_code as string;
     const lot = (l.lot as string | null) ?? null;
@@ -57,7 +57,6 @@ export default async function BuyerSheetPage({
         name: im?.name ?? code,
         category: im?.category ?? "—",
         required_qty: 0,
-        moq: Number(im?.moq ?? 0),
       } as AssignedItem);
     cur.required_qty += Number(l.required_qty) || 0;
     agg.set(key, cur);
@@ -75,7 +74,7 @@ export default async function BuyerSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, created_at, doc_path, po_line(item_code, lot, location, ordered_qty, moq, remark, item_master(name))"
+      "id, status, created_at, doc_path, po_line(item_code, lot, location, ordered_qty, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .eq("created_by", profile.userId)
@@ -120,7 +119,6 @@ export default async function BuyerSheetPage({
                   lot: string | null;
                   location: string | null;
                   ordered_qty: number;
-                  moq: number;
                   remark: string | null;
                   item_master: { name?: string } | null;
                 }[]) ?? [];
@@ -155,7 +153,6 @@ export default async function BuyerSheetPage({
                             <th className="px-3 py-2 font-medium">Plant</th>
                             <th className="px-3 py-2 font-medium">Lot</th>
                             <th className="px-3 py-2 font-medium">Ordered</th>
-                            <th className="px-3 py-2 font-medium">MOQ</th>
                             <th className="px-3 py-2 font-medium">Remark</th>
                           </tr>
                         </thead>
@@ -179,9 +176,6 @@ export default async function BuyerSheetPage({
                               </td>
                               <td className="px-3 py-2">
                                 {Number(l.ordered_qty).toLocaleString()}
-                              </td>
-                              <td className="px-3 py-2 text-neutral-500">
-                                {Number(l.moq).toLocaleString()}
                               </td>
                               <td className="px-3 py-2 text-neutral-500">
                                 {l.remark ?? "—"}

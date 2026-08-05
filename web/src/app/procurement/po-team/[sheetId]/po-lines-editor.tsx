@@ -14,19 +14,11 @@ export type EditableLine = {
   required: number | null;
   /** What the PO is actually being raised for. Editable. */
   ordered_qty: number;
-  moq: number;
   /** Chosen by the buyer; shown here for reference. */
   supplier: string | null;
   rate: number | null;
   remark: string | null;
 };
-
-/** MOQ is the minimum a supplier accepts, so an order must round up to a whole
- *  multiple of it. Same formula as `expected_max` in the reconciliation view. */
-export function moqRounded(qty: number, moq: number): number {
-  if (!moq || moq <= 0) return qty;
-  return Math.ceil(qty / moq) * moq;
-}
 
 export function PoLinesEditor({
   poId,
@@ -38,37 +30,16 @@ export function PoLinesEditor({
   locked: boolean;
 }) {
   const router = useRouter();
-  const [rows, setRows] = useState<Record<string, { qty: string; moq: string }>>(
-    Object.fromEntries(
-      lines.map((l) => [l.id, { qty: String(l.ordered_qty), moq: String(l.moq) }])
-    )
+  const [rows, setRows] = useState<Record<string, { qty: string }>>(
+    Object.fromEntries(lines.map((l) => [l.id, { qty: String(l.ordered_qty) }]))
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const belowMoq = lines.filter((l) => {
-    const q = Number(rows[l.id]?.qty);
-    const m = Number(rows[l.id]?.moq);
-    return m > 0 && q > 0 && q < m;
-  });
-
-  function set(id: string, field: "qty" | "moq", value: string) {
+  function set(id: string, field: "qty", value: string) {
     setSaved(false);
     setRows((r) => ({ ...r, [id]: { ...r[id], [field]: value } }));
-  }
-
-  function roundAllToMoq() {
-    setSaved(false);
-    setRows((r) => {
-      const next = { ...r };
-      for (const l of lines) {
-        const q = Number(next[l.id]?.qty) || 0;
-        const m = Number(next[l.id]?.moq) || 0;
-        next[l.id] = { ...next[l.id], qty: String(moqRounded(q, m)) };
-      }
-      return next;
-    });
   }
 
   async function onSave() {
@@ -77,7 +48,6 @@ export function PoLinesEditor({
     const edits: LineEdit[] = lines.map((l) => ({
       id: l.id,
       ordered_qty: Number(rows[l.id]?.qty),
-      moq: Number(rows[l.id]?.moq),
     }));
     const res = await savePoLines(poId, edits);
     setBusy(false);
@@ -103,7 +73,6 @@ export function PoLinesEditor({
               <th className="px-3 py-2 font-medium">Lot</th>
               <th className="px-3 py-2 font-medium">Required</th>
               <th className="px-3 py-2 font-medium">PO qty</th>
-              <th className="px-3 py-2 font-medium">MOQ</th>
               <th className="px-3 py-2 font-medium">Supplier</th>
               <th className="px-3 py-2 font-medium">Rate</th>
               <th className="px-3 py-2 font-medium">Value</th>
@@ -113,8 +82,6 @@ export function PoLinesEditor({
           <tbody>
             {lines.map((l) => {
               const q = Number(rows[l.id]?.qty);
-              const m = Number(rows[l.id]?.moq);
-              const under = m > 0 && q > 0 && q < m;
               return (
                 <tr
                   key={l.id}
@@ -139,17 +106,8 @@ export function PoLinesEditor({
                         step="any"
                         value={rows[l.id]?.qty ?? ""}
                         onChange={(e) => set(l.id, "qty", e.target.value)}
-                        className={`w-28 rounded-md border px-2 py-1 text-sm tabular-nums dark:bg-neutral-950 ${
-                          under
-                            ? "border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40"
-                            : "border-black/10 bg-white dark:border-white/15"
-                        }`}
+                        className="w-28 rounded-md border border-black/10 bg-white px-2 py-1 text-sm tabular-nums dark:border-white/15 dark:bg-neutral-950"
                       />
-                    )}
-                    {under && (
-                      <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                        below MOQ → {moqRounded(q, m).toLocaleString()}
-                      </div>
                     )}
                     {l.required != null && q > 0 && q !== l.required && (
                       <div
@@ -160,27 +118,9 @@ export function PoLinesEditor({
                         }`}
                       >
                         {q > l.required
-                          ? `+${(q - l.required).toLocaleString()} over required${
-                              m > 0 && q === moqRounded(l.required, m)
-                                ? " (MOQ)"
-                                : ""
-                            }`
+                          ? `+${(q - l.required).toLocaleString()} over required`
                           : `${(q - l.required).toLocaleString()} short`}
                       </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {locked ? (
-                      Number(l.moq).toLocaleString()
-                    ) : (
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={rows[l.id]?.moq ?? ""}
-                        onChange={(e) => set(l.id, "moq", e.target.value)}
-                        className="w-24 rounded-md border border-black/10 bg-white px-2 py-1 text-sm tabular-nums dark:border-white/15 dark:bg-neutral-950"
-                      />
                     )}
                   </td>
                   <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
@@ -208,14 +148,6 @@ export function PoLinesEditor({
 
       {!locked && (
         <>
-          {belowMoq.length > 0 && (
-            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-              {belowMoq.length} line(s) are below their MOQ. A supplier will not
-              accept an order under the minimum — round up before attaching the
-              document.
-            </p>
-          )}
-
           {error && (
             <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
               {error}
@@ -231,15 +163,6 @@ export function PoLinesEditor({
             >
               {busy ? "Saving…" : "Save PO quantities"}
             </button>
-            {belowMoq.length > 0 && (
-              <button
-                type="button"
-                onClick={roundAllToMoq}
-                className="rounded-lg border border-black/10 px-3 py-2 text-sm transition hover:bg-neutral-50 dark:border-white/15 dark:hover:bg-neutral-800"
-              >
-                Round all up to MOQ
-              </button>
-            )}
             <span className="text-xs tabular-nums text-neutral-500">
               Required {totalRequired.toLocaleString()} · PO{" "}
               {total.toLocaleString()}

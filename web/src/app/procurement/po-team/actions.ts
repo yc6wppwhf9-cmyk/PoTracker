@@ -20,7 +20,6 @@ function explainWriteFailure(message: string): string {
 export type LineEdit = {
   id: string;
   ordered_qty: number;
-  moq: number;
 };
 
 /**
@@ -41,8 +40,6 @@ export async function savePoLines(
   for (const e of edits) {
     if (!Number.isFinite(e.ordered_qty) || e.ordered_qty <= 0)
       return { error: "Every ordered quantity must be greater than zero.", ok: false };
-    if (!Number.isFinite(e.moq) || e.moq < 0)
-      return { error: "MOQ cannot be negative.", ok: false };
   }
 
   // Only lines that actually belong to this PO may be edited — the ids come
@@ -62,7 +59,7 @@ export async function savePoLines(
   for (const e of edits) {
     const { data, error } = await supabase
       .from("po_line")
-      .update({ ordered_qty: e.ordered_qty, moq: e.moq })
+      .update({ ordered_qty: e.ordered_qty })
       .eq("id", e.id)
       .eq("po_id", poId)
       .select("id");
@@ -87,7 +84,7 @@ export async function savePoLines(
     action: "po_lines_edited",
     detail: {
       lines: edits.length,
-      quantities: edits.map((e) => ({ id: e.id, ordered_qty: e.ordered_qty, moq: e.moq })),
+      quantities: edits.map((e) => ({ id: e.id, ordered_qty: e.ordered_qty })),
     },
   });
 

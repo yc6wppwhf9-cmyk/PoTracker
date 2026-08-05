@@ -94,7 +94,6 @@ def generate_executive_summary(
                 "required": r.get("required"),
                 "bought": r.get("ordered"),
                 "variance": r.get("variance"),
-                "moq_forced": r.get("moq_forced"),
             })
         elif st == "not_bought":
             not_bought.append({
@@ -128,7 +127,7 @@ Over-Buy Items Detail:
 Not Bought Items Detail:
 {not_bought[:5]}
 
-Write a clear, 3-4 sentence executive summary highlighting total fulfillment, key risks or discrepancies (such as over-buys or unpurchased items), MOQ impacts, and recommendations for the MD's approval decision. Do not use bullet points or markdown headings.
+Write a clear, 3-4 sentence executive summary highlighting total fulfillment, key risks or discrepancies (such as over-buys or unpurchased items), and recommendations for the MD's approval decision. Do not use bullet points or markdown headings.
 """
 
     ai_text = _call_claude(user_prompt, system=system_prompt)

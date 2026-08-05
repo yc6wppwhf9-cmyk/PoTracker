@@ -32,7 +32,7 @@ export const STATUS_META: Record<
   partial: { label: "Partial", short: "under-bought", token: "warn" },
   not_bought: { label: "Not bought", short: "no PO yet", token: "pending" },
   extra_not_in_sheet: { label: "Extra", short: "not on the sheet", token: "serious" },
-  on_target: { label: "On target", short: "exact / MOQ-rounded", token: "good" },
+  on_target: { label: "On target", short: "within tolerance", token: "good" },
 };
 
 export const STATUS_ORDER: ReconStatus[] = [

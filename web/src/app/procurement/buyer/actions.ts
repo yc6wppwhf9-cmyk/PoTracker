@@ -13,7 +13,6 @@ type LineInput = {
   lot: string | null;
   location: string | null;
   ordered_qty: number;
-  moq: number;
   supplier?: string | null;
   rate?: number | null;
   remark?: string | null;
@@ -101,7 +100,9 @@ export async function createPo(
       lot: l.lot ?? null,
       location: l.location ?? null,
       ordered_qty: Number(l.ordered_qty),
-      moq: Number(l.moq) || 0,
+      // MOQ is not part of this process; the column keeps its 0 default so
+      // the reconciliation view's expected_max falls back to the requirement.
+      moq: 0,
       supplier: l.supplier?.trim() ? l.supplier.trim() : null,
       rate:
         l.rate == null || !Number.isFinite(Number(l.rate))

@@ -45,8 +45,6 @@ DETAIL_COLUMNS = [
     ("ordered", "Ordered"),
     ("variance", "Variance"),
     ("variance_pct", "Variance %"),
-    ("moq", "MOQ"),
-    ("moq_forced", "MOQ forced"),
     ("status", "Status"),
 ]
 
@@ -164,17 +162,11 @@ def export_reconciliation(
 
     # Headline KPIs — the two an approver is actually judged on.
     on_target = len(by_status.get("on_target", []))
-    moq_forced = sum(1 for r in rows if r.get("moq_forced"))
-    genuine_over = sum(
-        1 for r in by_status.get("over_buy", []) if not r.get("moq_forced")
-    )
     row_i += 2
     for label, value, fmt in (
         ("Fulfilment rate (on target / all lines)",
          (on_target / total_lines) if total_lines else 0, "0.0%"),
         ("Lines with no PO raised", len(by_status.get("not_bought", [])), "#,##0"),
-        ("Over-buy forced by MOQ", moq_forced, "#,##0"),
-        ("Genuine over-buy (not MOQ)", genuine_over, "#,##0"),
     ):
         ws.cell(row=row_i, column=1, value=label).font = Font(bold=True)
         c = ws.cell(row=row_i, column=2, value=value)
@@ -192,8 +184,6 @@ def export_reconciliation(
         for i, r in enumerate(group, start=2):
             req = _num(r.get("required"))
             for c, (field, _) in enumerate(DETAIL_COLUMNS, start=1):
-                if field == "moq_forced":
-                    v = "Yes" if r.get("moq_forced") else ""
                 elif field == "variance_pct":
                     # No requirement means no denominator — an extra line has
                     # nothing to be a percentage of.
@@ -201,7 +191,7 @@ def export_reconciliation(
                 else:
                     v = r.get(field)
                 cell = tab.cell(row=i, column=c, value=v)
-                if field in ("required", "ordered", "variance", "moq"):
+                if field in ("required", "ordered", "variance"):
                     cell.number_format = "#,##0.00"
                 elif field == "variance_pct":
                     cell.number_format = "+0.0%;-0.0%;0.0%"

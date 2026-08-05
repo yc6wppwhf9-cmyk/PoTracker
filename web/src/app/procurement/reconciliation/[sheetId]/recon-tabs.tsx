@@ -181,7 +181,6 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
               <th className="px-4 py-3.5">Category</th>
               <th className="px-4 py-3.5 text-right">Required</th>
               <th className="px-4 py-3.5 text-right">Ordered</th>
-              <th className="px-4 py-3.5 text-right">MOQ</th>
               <th className="px-4 py-3.5 text-right">Variance</th>
               <th className="px-4 py-3.5 text-right">Variance %</th>
             </tr>
@@ -225,26 +224,12 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
                   <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                     {fmt(r.ordered)}
                   </td>
-                  <td className="px-4 py-3.5 text-right tabular-nums text-slate-400">
-                    {fmt(r.moq)}
-                  </td>
                   <td
                     className="px-4 py-3.5 text-right font-semibold tabular-nums"
                     style={vColor ? { color: vColor } : { color: "#9ca3af" }}
                   >
                     {v > 0 ? "+" : ""}
                     {fmt(r.variance)}
-                    {r.moq_forced && (
-                      <span
-                        className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
-                        style={{
-                          color: statusVar("good"),
-                          backgroundColor: "var(--st-good-tint)",
-                        }}
-                      >
-                        MOQ
-                      </span>
-                    )}
                   </td>
                   <td
                     className="px-4 py-3.5 text-right font-semibold tabular-nums"
@@ -257,7 +242,7 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
             })}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
                   {searchQuery
                     ? `No items matching "${searchQuery}" found under ${meta.label}.`
                     : `No items found for status "${meta.label}".`}
@@ -268,19 +253,6 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
         </table>
       </div>
 
-      {active === "on_target" && (counts["on_target"] ?? 0) > 0 && (
-        <p className="mt-3 text-xs text-slate-400">
-          Lines tagged{" "}
-          <span
-            className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase"
-            style={{ color: statusVar("good"), backgroundColor: "var(--st-good-tint)" }}
-          >
-            MOQ
-          </span>{" "}
-          were bought above requirement only to meet the minimum order quantity —
-          expected, not an over-order.
-        </p>
-      )}
     </div>
   );
 }

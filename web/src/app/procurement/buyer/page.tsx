@@ -43,7 +43,7 @@ export default async function BuyerHome() {
     <AppShell profile={profile}>
       <h1 className="text-2xl font-semibold tracking-tight">Buyer workspace</h1>
       <p className="mt-1 text-neutral-500">
-        Sheets with items assigned to you. Open one to draft a PO and set MOQs.
+        Sheets with items assigned to you. Open one to draft a PO.
       </p>
 
       <EscalationsView mode="buyer" title="Escalations for you — resolve promptly" />

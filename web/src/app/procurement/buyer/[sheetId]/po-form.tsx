@@ -11,7 +11,6 @@ export type AssignedItem = {
   name: string;
   category: string;
   required_qty: number;
-  moq: number;
 };
 
 const initial: CreatePoState = { error: null, poId: null };
@@ -33,13 +32,7 @@ export function PoForm({
         keyOf(it),
         {
           include: false,
-          // MOQ is the minimum a supplier accepts, so default the order up to a
-          // whole multiple of it — ordering below MOQ produces a PO no supplier
-          // will fulfil. Same formula as expected_max in the reconciliation view.
-          ordered: it.moq > 0
-            ? Math.ceil(it.required_qty / it.moq) * it.moq
-            : it.required_qty,
-          moq: it.moq,
+          ordered: it.required_qty,
           supplier: "",
           rate: "",
           remark: "",
@@ -82,7 +75,10 @@ export function PoForm({
     lot: it.lot,
     location: it.location,
     ordered_qty: Number(rows[keyOf(it)].ordered) || 0,
-    moq: Number(rows[keyOf(it)].moq) || 0,
+    // MOQ is not part of this process; the column stays at its 0 default, so
+    // the reconciliation view's expected_max falls back to the required
+    // quantity and nothing is ever flagged as MOQ-forced.
+    moq: 0,
     supplier: rows[keyOf(it)].supplier?.trim() || null,
     rate: rows[keyOf(it)].rate === "" ? null : Number(rows[keyOf(it)].rate),
     remark: rows[keyOf(it)].remark?.trim() || null,
@@ -94,32 +90,10 @@ export function PoForm({
     return sum + rate * (Number(r.ordered) || 0);
   }, 0);
 
-  // MOQ is usually not in the item master — it is supplier-specific, so the
-  // buyer types it here. Once they do, the order quantity has to round up to a
-  // whole multiple or the supplier rejects the order.
-  const belowMoq = selected.filter((it) => {
-    const r = rows[keyOf(it)];
-    const q = Number(r.ordered) || 0;
-    const m = Number(r.moq) || 0;
-    return m > 0 && q > 0 && q < m;
-  });
-
-  function roundAllToMoq() {
-    setRows((prev) => {
-      const next = { ...prev };
-      for (const it of selected) {
-        const k = keyOf(it);
-        const q = Number(next[k].ordered) || 0;
-        const m = Number(next[k].moq) || 0;
-        if (m > 0) next[k] = { ...next[k], ordered: Math.ceil(q / m) * m };
-      }
-      return next;
-    });
-  }
 
   function set(
     k: string,
-    field: "include" | "ordered" | "moq" | "supplier" | "rate" | "remark",
+    field: "include" | "ordered" | "supplier" | "rate" | "remark",
     value: unknown
   ) {
     setRows((r) => ({ ...r, [k]: { ...r[k], [field]: value } }));
@@ -144,7 +118,7 @@ export function PoForm({
               <th className="sticky left-10 top-0 z-30 border-b border-r border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900">
                 Item
               </th>
-              {["Lot", "Category", "Required", "Order qty", "MOQ",
+              {["Lot", "Category", "Required", "Order qty",
                 "Supplier", "Rate", "Value", "Purchase remark"].map((h) => (
                 <th
                   key={h}
@@ -224,38 +198,7 @@ export function PoForm({
                       value={row.ordered}
                       onChange={(e) => set(k, "ordered", e.target.value)}
                       disabled={!row.include}
-                      className={`w-28 rounded-md border px-2 py-1 text-sm disabled:opacity-40 dark:bg-neutral-950 ${
-                        row.include &&
-                        Number(row.moq) > 0 &&
-                        Number(row.ordered) > 0 &&
-                        Number(row.ordered) < Number(row.moq)
-                          ? "border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40"
-                          : "border-black/10 bg-white dark:border-white/15"
-                      }`}
-                    />
-                    {row.include &&
-                      Number(row.moq) > 0 &&
-                      Number(row.ordered) > 0 &&
-                      Number(row.ordered) < Number(row.moq) && (
-                        <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                          below MOQ →{" "}
-                          {(
-                            Math.ceil(
-                              Number(row.ordered) / Number(row.moq)
-                            ) * Number(row.moq)
-                          ).toLocaleString()}
-                        </div>
-                      )}
-                  </td>
-                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={row.moq}
-                      onChange={(e) => set(k, "moq", e.target.value)}
-                      disabled={!row.include}
-                      className="w-24 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
+                      className="w-28 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
                     />
                   </td>
                   <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
@@ -321,15 +264,6 @@ export function PoForm({
           )}
         </p>
         <div className="flex items-center gap-3">
-          {belowMoq.length > 0 && (
-            <button
-              type="button"
-              onClick={roundAllToMoq}
-              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 transition hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-            >
-              Round {belowMoq.length} line(s) up to MOQ
-            </button>
-          )}
           {state.poId && (
             <span className="text-sm text-green-600">PO draft created ✓</span>
           )}
