@@ -122,14 +122,75 @@ export async function saveAssignments(
     detail: { lines_updated: updated, all_assigned: allAssigned },
   });
 
-  // Tell each buyer about the items assigned to them. Non-fatal: the
-  // assignment is already saved.
-  if (updated > 0) await notifyBuyersAssigned(sheetId);
-
+  // Deliberately does NOT mail the buyers. Saving is a working step — the head
+  // routes a few categories, comes back, changes their mind — and mailing on
+  // every save would spam the buyers with drafts. Notification is the separate
+  // explicit action below.
   revalidatePath(`/procurement/assign/${sheetId}`);
   revalidatePath("/procurement/assign");
   revalidatePath("/procurement/buyer");
   return { error: null, ok: true };
+}
+
+export type NotifyBuyersState = {
+  error: string | null;
+  ok: boolean;
+  sent: number;
+};
+
+/**
+ * Send each buyer the list of what they have been assigned. Separate from
+ * saving so the purchase head decides when the routing is final; until this
+ * runs, no buyer hears anything.
+ */
+export async function notifyBuyersAction(
+  _prev: NotifyBuyersState,
+  formData: FormData
+): Promise<NotifyBuyersState> {
+  const me = await requireRole("purchase_head");
+  const supabase = await createClient();
+
+  const sheetId = String(formData.get("sheet_id") ?? "");
+  if (!sheetId) return { error: "Missing sheet.", ok: false, sent: 0 };
+
+  // head:true fetches the count without the rows — this only needs to know
+  // whether there is anything to announce.
+  const { count } = await supabase
+    .from("rm_requirement")
+    .select("id", { count: "exact", head: true })
+    .eq("rm_sheet_id", sheetId)
+    .not("assigned_buyer", "is", null);
+
+  if ((count ?? 0) === 0)
+    return {
+      error: "No lines are assigned yet — assign buyers and save first.",
+      ok: false,
+      sent: 0,
+    };
+
+  const res = await notifyBuyersAssigned(sheetId);
+  if (res.error) return { error: res.error, ok: false, sent: 0 };
+  // Mail is skipped rather than failed when the backend has no Resend key.
+  // Reporting that as success is how this went unnoticed for so long.
+  if (!res.sent)
+    return {
+      error:
+        "Assignments are saved, but no mail was sent — email is not " +
+        "configured on the API. Check /health for email_configured.",
+      ok: false,
+      sent: 0,
+    };
+
+  await supabase.from("audit_log").insert({
+    actor_id: me.userId,
+    entity: "rm_sheet",
+    entity_id: sheetId,
+    action: "buyers_notified",
+    detail: { assigned_lines: count ?? 0 },
+  });
+
+  revalidatePath(`/procurement/assign/${sheetId}`);
+  return { error: null, ok: true, sent: count ?? 0 };
 }
 
 /**
