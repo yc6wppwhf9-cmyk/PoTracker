@@ -296,12 +296,16 @@ def notify_md_escalations(user: CurrentUser = Depends(get_current_user)):
     The MD is mailed for escalations only — not for every approval package —
     so the alert means something when it arrives.
 
-    This sweep both promotes and mails. The design left promotion to pg_cron;
-    the extension is installed, but nothing else in this codebase ever writes
-    `md_escalated`, so if no job is actually scheduled an escalation would sit
-    at `open` past its deadline and never reach the MD. Promoting here makes
-    the path work either way: both promote exactly the rows whose deadline has
-    passed, and re-promoting is a no-op, so a scheduled job does not conflict.
+    Promotion is done by the pg_cron job `auto_escalate_to_md`, which runs
+    every 15 minutes. That job can only flip the status: pg_net is not
+    installed on this project, so nothing in the database can make an outbound
+    HTTP call, and the mail has to originate here.
+
+    The promotion below therefore duplicates the job deliberately rather than
+    replacing it. It costs one indexed UPDATE, it is idempotent, and it means
+    an escalation raised minutes ago is already visible to the MD when this
+    runs instead of waiting for the next quarter-hour tick — and that the path
+    still works if the job is ever paused or dropped.
 
     It is idempotent: escalation ids already mailed are recorded in audit_log
     and never mailed twice.

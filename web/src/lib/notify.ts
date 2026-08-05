@@ -67,9 +67,11 @@ export function notifyPoDrafted(poId: string) {
  * The MD is mailed for escalations only — not for every approval package — so
  * the alert still means something.
  *
- * The sweep also promotes escalations whose SLA has passed, rather than relying
- * on a pg_cron job being scheduled to do it. Both operations are idempotent, so
- * calling this on page load is safe and a scheduled job does not conflict.
+ * The pg_cron job auto_escalate_to_md promotes overdue escalations every 15
+ * minutes but cannot mail — pg_net is not installed, so the database has no
+ * way to make an outbound call. Mail therefore originates from this sweep, and
+ * so nothing reaches the MD until this runs. Both halves are idempotent, so
+ * calling it on page load is safe.
  */
 export function notifyMdEscalations() {
   return notify("md-escalations", {});
