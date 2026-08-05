@@ -56,6 +56,22 @@ export function PoForm({
     initial
   );
 
+  // The Plant column was dropped as noise — it is the same value on nearly
+  // every row. But location is part of the join key (item_code, lot, location),
+  // so two rows can differ by nothing else, and without it they would look
+  // identical while being separate lines. Show it only where it is the only
+  // thing telling rows apart.
+  const ambiguous = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const it of items) {
+      const k = `${it.item_code}__${it.lot ?? ""}`;
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+    return seen;
+  }, [items]);
+  const needsPlant = (it: AssignedItem) =>
+    (ambiguous.get(`${it.item_code}__${it.lot ?? ""}`) ?? 0) > 1;
+
   const selected = useMemo(
     () => items.filter((it) => rows[keyOf(it)]?.include),
     [items, rows]
@@ -128,7 +144,7 @@ export function PoForm({
               <th className="sticky left-10 top-0 z-30 border-b border-r border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900">
                 Item
               </th>
-              {["Plant", "Lot", "Category", "Required", "Order qty", "MOQ",
+              {["Lot", "Category", "Required", "Order qty", "MOQ",
                 "Supplier", "Rate", "Value", "Purchase remark"].map((h) => (
                 <th
                   key={h}
@@ -176,15 +192,20 @@ export function PoForm({
                         : "bg-white dark:bg-neutral-900"
                     }`}
                   >
-                    <div className="max-w-[220px] truncate font-medium" title={it.name}>
+                    <div className="max-w-[240px] truncate font-medium" title={it.name}>
                       {it.name}
                     </div>
-                    <div className="font-mono text-xs text-neutral-500">
-                      {it.item_code}
+                    <div className="flex items-center gap-1.5 text-xs text-neutral-500">
+                      <span className="font-mono">{it.item_code}</span>
+                      {needsPlant(it) && it.location && (
+                        <span
+                          className="rounded bg-neutral-100 px-1 py-px text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+                          title="Same item and lot also appears at another plant"
+                        >
+                          {it.location}
+                        </span>
+                      )}
                     </div>
-                  </td>
-                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 font-medium text-neutral-600 dark:border-white/5 dark:text-neutral-300">
-                    {it.location ?? "—"}
                   </td>
                   <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 font-medium text-neutral-600 dark:border-white/5 dark:text-neutral-300">
                     {it.lot ?? "—"}

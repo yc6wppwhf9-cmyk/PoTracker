@@ -41,7 +41,7 @@ export function AppShell({
     <div className="min-h-screen bg-slate-50/50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       {/* Sticky Glassmorphic Header */}
       <header className="glass-header sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800/80">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6">
+        <div className="mx-auto flex max-w-[112rem] items-center justify-between px-4 py-3.5 sm:px-6">
           <Link href="/dashboard" className="flex items-center gap-2.5 font-bold tracking-tight">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-600 to-blue-500 text-white shadow-md shadow-indigo-500/20 text-xs font-black">
               RM
@@ -72,7 +72,7 @@ export function AppShell({
       </header>
 
       {/* Main Container */}
-      <div className="mx-auto flex max-w-7xl gap-8 px-4 py-8 sm:px-6">
+      <div className="mx-auto flex max-w-[112rem] gap-8 px-4 py-8 sm:px-6">
         <nav className="hidden w-56 shrink-0 md:block">
           <div className="sticky top-20 rounded-2xl glass-card p-3">
             <div className="mb-2 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
