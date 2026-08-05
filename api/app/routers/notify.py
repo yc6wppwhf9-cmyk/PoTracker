@@ -264,7 +264,33 @@ def notify_buyers_assigned(
                 body,
             )
         )
-    return {"buyers": len(per_buyer), "results": results}
+    # Every other endpoint returns send_email's dict, which carries `sent`.
+    # This one fans out to several buyers, so it has to summarise — and without
+    # a top-level `sent` the caller cannot tell success from failure, and
+    # reported a delivered mail as "nothing was sent".
+    delivered = sum(1 for r in results if r.get("sent"))
+    summary: dict[str, Any] = {
+        "sent": delivered > 0,
+        "buyers": len(per_buyer),
+        "delivered": delivered,
+        "failed": len(results) - delivered,
+        "results": results,
+    }
+    if delivered == 0:
+        # Surface the first real explanation rather than a generic failure.
+        summary["reason"] = next(
+            (
+                r.get("reason") or r.get("hint") or r.get("detail")
+                for r in results
+                if r.get("reason") or r.get("hint") or r.get("detail")
+            ),
+            "No mail could be sent to any assigned buyer.",
+        )
+    elif delivered < len(results):
+        summary["reason"] = (
+            f"Sent to {delivered} of {len(results)} buyers; the rest failed."
+        )
+    return summary
 
 
 class PoDrafted(BaseModel):

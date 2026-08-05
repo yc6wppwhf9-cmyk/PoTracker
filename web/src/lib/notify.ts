@@ -20,6 +20,9 @@ type NotifyResult = {
   /** Why nothing was sent, phrased for the person who pressed the button. */
   reason?: string;
   recipients?: number;
+  /** Fan-out endpoints only: how many recipients actually received mail. */
+  delivered?: number;
+  buyers?: number;
 };
 
 async function notify(path: string, body: unknown): Promise<NotifyResult> {

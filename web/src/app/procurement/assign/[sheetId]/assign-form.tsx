@@ -323,7 +323,7 @@ export function AssignForm({
         )}
         {notifyState.ok && (
           <span className="text-sm font-semibold text-green-600">
-            Buyers notified ✓ ({notifyState.sent} line{notifyState.sent === 1 ? "" : "s"})
+            Buyers notified ✓ ({notifyState.sent} buyer{notifyState.sent === 1 ? "" : "s"})
           </span>
         )}
         {notifyState.error && (

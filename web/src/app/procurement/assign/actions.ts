@@ -187,11 +187,16 @@ export async function notifyBuyersAction(
     entity: "rm_sheet",
     entity_id: sheetId,
     action: "buyers_notified",
-    detail: { assigned_lines: count ?? 0 },
+    detail: {
+      assigned_lines: count ?? 0,
+      buyers: res.buyers ?? null,
+      delivered: res.delivered ?? null,
+    },
   });
 
   revalidatePath(`/procurement/assign/${sheetId}`);
-  return { error: null, ok: true, sent: count ?? 0 };
+  // Report buyers reached, not lines — "notified 50" reads as 50 emails.
+  return { error: null, ok: true, sent: res.delivered ?? res.buyers ?? 1 };
 }
 
 /**
