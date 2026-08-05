@@ -92,3 +92,47 @@ export async function savePoLines(
   revalidatePath("/procurement/reconciliation");
   return { error: null, ok: true };
 }
+
+export type PoNumberState = { error: string | null; ok: boolean };
+
+/**
+ * Correct the supplier-facing PO number on an attached PO.
+ *
+ * It is read out of the PDF at upload, which is convenient but not
+ * authoritative — layouts vary and a scanned document yields no text at all.
+ * This is the identifier the GRN register joins on, so it has to be
+ * correctable by the person holding the document.
+ */
+export async function savePoNumber(
+  poId: string,
+  poNumber: string
+): Promise<PoNumberState> {
+  await requireRole("po_team");
+  const supabase = await createClient();
+  if (!poId) return { error: "Missing PO.", ok: false };
+
+  const value = poNumber.trim().toUpperCase();
+  if (!value) return { error: "Enter the PO number from the document.", ok: false };
+
+  const { data, error } = await supabase
+    .from("po")
+    .update({ po_number: value })
+    .eq("id", poId)
+    .select("id");
+
+  if (error) {
+    // The unique index exists so two POs cannot claim one number, which would
+    // make GRN matching ambiguous in a way no later code could resolve.
+    if (error.code === "23505" || error.message.includes("po_po_number_key"))
+      return {
+        error: `PO number ${value} already belongs to another purchase order.`,
+        ok: false,
+      };
+    return { error: explainWriteFailure(error.message), ok: false };
+  }
+  if ((data?.length ?? 0) === 0)
+    return { error: explainWriteFailure("row-level security"), ok: false };
+
+  revalidatePath("/procurement/po-team");
+  return { error: null, ok: true };
+}

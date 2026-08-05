@@ -3,6 +3,8 @@ uvicorn[standard]>=0.34
 python-multipart>=0.0.20
 supabase>=2.15
 openpyxl>=3.1.5
+# Reads the PO number out of an attached PO document.
+pypdf>=5.1
 pydantic>=2.11
 httpx>=0.28
 anthropic>=0.49

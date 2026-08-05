@@ -180,6 +180,7 @@ export type Database = {
           doc_path: string | null
           etd: string | null
           id: string
+          po_number: string | null
           rm_sheet_id: string
           site: string | null
           status: string
@@ -191,6 +192,7 @@ export type Database = {
           doc_path?: string | null
           etd?: string | null
           id?: string
+          po_number?: string | null
           rm_sheet_id: string
           site?: string | null
           status?: string
@@ -202,6 +204,7 @@ export type Database = {
           doc_path?: string | null
           etd?: string | null
           id?: string
+          po_number?: string | null
           rm_sheet_id?: string
           site?: string | null
           status?: string

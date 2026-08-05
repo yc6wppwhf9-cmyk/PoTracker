@@ -7,6 +7,7 @@ import openpyxl
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.auth import CurrentUser, get_current_user, require_roles
+from app.po_number import po_number_from_pdf
 from app.routers.notify import notify_po_attached
 from app.supabase_client import fetch_all
 
@@ -69,9 +70,16 @@ def _match_po_header(cell: str) -> Optional[str]:
 def upload_po_document(
     po_id: str,
     file: UploadFile = File(...),
+    po_number: str = Form(default=""),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """PO team attaches the finalised PO document to a PO and marks it uploaded."""
+    """PO team attaches the finalised PO document to a PO and marks it uploaded.
+
+    Also records the supplier-facing PO number. A number typed by the PO team
+    always wins; otherwise it is read out of the PDF. This is the identifier the
+    GRN register will refer to, so it is captured at the one moment the document
+    is in front of the person who can confirm it.
+    """
     require_roles(user, "po_team")
 
     filename = file.filename or "po"
@@ -106,13 +114,35 @@ def upload_po_document(
     except Exception as e:
         raise HTTPException(502, f"Storage upload failed: {e}")
 
-    # Mark the PO uploaded (RLS po_update allows po_team).
-    upd = (
-        user.client.table("po")
-        .update({"doc_path": path, "uploaded_by": user.id, "status": "uploaded"})
-        .eq("id", po_id)
-        .execute()
-    )
+    # The typed number wins; otherwise read it off the document. Extraction is
+    # best-effort and never blocks the attachment — a missing number is fixed
+    # by typing it, a wrong one would quietly misdirect GRN matching.
+    typed = po_number.strip().upper()
+    extracted = po_number_from_pdf(data) if ext == ".pdf" else None
+    resolved = typed or extracted
+
+    fields: dict[str, Any] = {
+        "doc_path": path,
+        "uploaded_by": user.id,
+        "status": "uploaded",
+    }
+    if resolved:
+        fields["po_number"] = resolved
+
+    try:
+        upd = (
+            user.client.table("po").update(fields).eq("id", po_id).execute()
+        )
+    except Exception as e:
+        # A duplicate PO number is the likely cause and is worth naming: the
+        # unique index exists precisely so two POs cannot claim one number.
+        if resolved and "po_po_number_key" in str(e):
+            raise HTTPException(
+                409,
+                f"PO number {resolved} is already used by another purchase "
+                "order. Check the number on the document.",
+            )
+        raise HTTPException(500, f"Failed to update PO record: {e}")
     if not upd.data:
         raise HTTPException(500, "Failed to update PO record.")
 
@@ -122,7 +152,12 @@ def upload_po_document(
             "entity": "po",
             "entity_id": po_id,
             "action": "doc_uploaded",
-            "detail": {"filename": filename, "path": path},
+            "detail": {
+                "filename": filename,
+                "path": path,
+                "po_number": resolved,
+                "po_number_source": "typed" if typed else ("extracted" if extracted else None),
+            },
         }
     ).execute()
 
@@ -137,6 +172,8 @@ def upload_po_document(
         "po_id": po_id,
         "doc_path": path,
         "status": "uploaded",
+        "po_number": resolved,
+        "po_number_source": "typed" if typed else ("extracted" if extracted else None),
         "notified": notified,
     }
 

@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { UploadPo } from "./upload-po";
 import { PoLinesEditor } from "./po-lines-editor";
+import { PoNumberField } from "./po-number-field";
 
 type PoLine = {
   id: string;
@@ -50,7 +51,7 @@ export default async function PoTeamSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, doc_path, created_at, created_by, etd, site, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, item_master(name))"
+      "id, status, doc_path, created_at, created_by, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     // Drafts belong to the buyer until they press Send. Showing them here would
@@ -131,6 +132,13 @@ export default async function PoTeamSheetPage({
                     <span className="font-medium text-neutral-700 dark:text-neutral-300">
                       {p.site ?? "not set"}
                     </span>
+                  </div>
+                  <div className="mt-1">
+                    <PoNumberField
+                      poId={p.id}
+                      value={p.po_number}
+                      hasDoc={Boolean(p.doc_path)}
+                    />
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
