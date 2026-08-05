@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { getPendingPos } from "@/lib/pending-pos";
+import { PendingPos } from "./pending-pos";
 
 export default async function ApproverList() {
   const profile = await requireRole("approver");
@@ -12,6 +14,10 @@ export default async function ApproverList() {
     .select("id, style_ref, status, created_at")
     .order("created_at", { ascending: false });
 
+  // Overdue purchase orders, derived from the GRN register rather than a
+  // stored status, so the list cannot drift out of step with what has arrived.
+  const pending = await getPendingPos();
+
   return (
     <AppShell profile={profile}>
       <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
@@ -20,7 +26,24 @@ export default async function ApproverList() {
         Director.
       </p>
 
-      <div className="mt-6 overflow-hidden rounded-2xl border border-black/[0.08] bg-white dark:border-white/[0.08] dark:bg-neutral-900">
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold tracking-tight">
+          Pending POs
+          {pending.length > 0 && (
+            <span className="ml-2 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+              {pending.length}
+            </span>
+          )}
+        </h2>
+        <p className="mb-3 mt-1 text-sm text-neutral-500">
+          Past their ETD with goods still outstanding, measured against the
+          imported GRN register.
+        </p>
+        <PendingPos pos={pending} />
+      </div>
+
+      <h2 className="mt-10 text-lg font-semibold tracking-tight">Sheets</h2>
+      <div className="mt-3 overflow-hidden rounded-2xl border border-black/[0.08] bg-white dark:border-white/[0.08] dark:bg-neutral-900">
         <table className="w-full text-sm">
           <thead className="border-b border-black/[0.06] text-left text-xs uppercase tracking-wide text-neutral-400 dark:border-white/[0.06]">
             <tr>
