@@ -114,22 +114,29 @@ export function PoForm({
       <input type="hidden" name="sheet_id" value={sheetId} />
       <input type="hidden" name="lines" value={JSON.stringify(payload)} />
 
-      <div className="overflow-x-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
-        <table className="w-full text-sm">
-          <thead className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-white/10">
+      {/* The row is wider than most screens, so the two columns that say WHICH
+          material this is — the checkbox and the item — are pinned. Scrolled
+          right without them, every row shows only its category, and a buyer is
+          typing supplier and rate against a line they cannot identify.
+          max-h + sticky header keeps the column names visible down a long
+          sheet; without it you lose track of which field you are in. */}
+      <div className="max-h-[70vh] overflow-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
+        <table className="w-full border-separate border-spacing-0 text-sm">
+          <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
-              <th className="px-3 py-3 font-medium"></th>
-              <th className="px-3 py-3 font-medium">Item</th>
-              <th className="px-3 py-3 font-medium">Plant</th>
-              <th className="px-3 py-3 font-medium">Lot</th>
-              <th className="px-3 py-3 font-medium">Category</th>
-              <th className="px-3 py-3 font-medium">Required</th>
-              <th className="px-3 py-3 font-medium">Order qty</th>
-              <th className="px-3 py-3 font-medium">MOQ</th>
-              <th className="px-3 py-3 font-medium">Supplier</th>
-              <th className="px-3 py-3 font-medium">Rate</th>
-              <th className="px-3 py-3 font-medium">Value</th>
-              <th className="px-3 py-3 font-medium">Purchase remark</th>
+              <th className="sticky left-0 top-0 z-30 border-b border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900"></th>
+              <th className="sticky left-10 top-0 z-30 border-b border-r border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900">
+                Item
+              </th>
+              {["Plant", "Lot", "Category", "Required", "Order qty", "MOQ",
+                "Supplier", "Rate", "Value", "Purchase remark"].map((h) => (
+                <th
+                  key={h}
+                  className="sticky top-0 z-20 whitespace-nowrap border-b border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900"
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -139,32 +146,56 @@ export function PoForm({
               return (
                 <tr
                   key={k}
-                  className="border-b border-black/5 last:border-0 dark:border-white/5"
+                  className={
+                    row.include
+                      ? "bg-indigo-50/60 dark:bg-indigo-950/20"
+                      : "odd:bg-black/[0.015] dark:odd:bg-white/[0.02]"
+                  }
                 >
-                  <td className="px-3 py-2">
+                  {/* Pinned cells need their own background, or the scrolling
+                      columns show through them. The row tint is repeated for
+                      the same reason. */}
+                  <td
+                    className={`sticky left-0 z-10 w-10 border-b border-black/5 px-3 py-1.5 dark:border-white/5 ${
+                      row.include
+                        ? "bg-indigo-50 dark:bg-indigo-950/40"
+                        : "bg-white dark:bg-neutral-900"
+                    }`}
+                  >
                     <input
                       type="checkbox"
                       checked={row.include}
                       onChange={(e) => set(k, "include", e.target.checked)}
+                      className="cursor-pointer"
                     />
                   </td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{it.name}</div>
+                  <td
+                    className={`sticky left-10 z-10 border-b border-r border-black/5 px-3 py-1.5 dark:border-white/5 ${
+                      row.include
+                        ? "bg-indigo-50 dark:bg-indigo-950/40"
+                        : "bg-white dark:bg-neutral-900"
+                    }`}
+                  >
+                    <div className="max-w-[220px] truncate font-medium" title={it.name}>
+                      {it.name}
+                    </div>
                     <div className="font-mono text-xs text-neutral-500">
                       {it.item_code}
                     </div>
                   </td>
-                  <td className="px-3 py-2 font-medium text-neutral-600 dark:text-neutral-300">
+                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 font-medium text-neutral-600 dark:border-white/5 dark:text-neutral-300">
                     {it.location ?? "—"}
                   </td>
-                  <td className="px-3 py-2 font-medium text-neutral-600 dark:text-neutral-300">
+                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 font-medium text-neutral-600 dark:border-white/5 dark:text-neutral-300">
                     {it.lot ?? "—"}
                   </td>
-                  <td className="px-3 py-2 text-neutral-500">{it.category}</td>
-                  <td className="px-3 py-2 text-neutral-500">
+                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 text-neutral-500 dark:border-white/5">
+                    {it.category}
+                  </td>
+                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 text-right tabular-nums text-neutral-500 dark:border-white/5">
                     {it.required_qty.toLocaleString()}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
                     <input
                       type="number"
                       step="any"
@@ -195,7 +226,7 @@ export function PoForm({
                         </div>
                       )}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
                     <input
                       type="number"
                       step="any"
@@ -206,7 +237,7 @@ export function PoForm({
                       className="w-24 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
                     />
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
                     <input
                       type="text"
                       value={row.supplier}
@@ -216,7 +247,7 @@ export function PoForm({
                       className="w-40 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
                     />
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
                     <input
                       type="number"
                       step="any"
@@ -228,7 +259,7 @@ export function PoForm({
                       className="w-24 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
                     />
                   </td>
-                  <td className="px-3 py-2 tabular-nums text-neutral-600 dark:text-neutral-300">
+                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 text-right tabular-nums text-neutral-600 dark:border-white/5 dark:text-neutral-300">
                     {row.include && row.rate !== ""
                       ? (
                           (Number(row.rate) || 0) * (Number(row.ordered) || 0)
@@ -237,7 +268,7 @@ export function PoForm({
                         })
                       : "—"}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
                     <input
                       type="text"
                       value={row.remark}
