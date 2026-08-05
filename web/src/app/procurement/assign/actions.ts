@@ -136,6 +136,21 @@ export async function deleteSheetAction(sheetId: string) {
   const me = await requireRole("purchase_head");
   const supabase = await createClient();
 
+  // Record what is about to be destroyed while it can still be read. This
+  // cascade removes a sheet, its requirements, its POs and its approvals with
+  // no way back, and until now left no trace of having happened — so a sheet
+  // could vanish with the audit trail still showing "uploaded" as its last
+  // event, and no record of who removed it.
+  const { data: doomed } = await supabase
+    .from("rm_sheet")
+    .select("style_ref, status")
+    .eq("id", sheetId)
+    .maybeSingle();
+  const { count: lineCount } = await supabase
+    .from("rm_requirement")
+    .select("id", { count: "exact", head: true })
+    .eq("rm_sheet_id", sheetId);
+
   await supabase.from("approval").delete().eq("rm_sheet_id", sheetId);
   await supabase.from("escalation").delete().eq("rm_sheet_id", sheetId);
   const { data: pos } = await supabase.from("po").select("id").eq("rm_sheet_id", sheetId);
@@ -146,6 +161,24 @@ export async function deleteSheetAction(sheetId: string) {
   }
   await supabase.from("rm_requirement").delete().eq("rm_sheet_id", sheetId);
   const { error } = await supabase.from("rm_sheet").delete().eq("id", sheetId);
+
+  // Logged only on success, so a refused delete is not recorded as one. The
+  // row outlives the sheet: audit_log.entity_id is a bare uuid, not a foreign
+  // key, which is what makes a deletion trail possible at all.
+  if (!error) {
+    await supabase.from("audit_log").insert({
+      actor_id: me.userId,
+      entity: "rm_sheet",
+      entity_id: sheetId,
+      action: "sheet_deleted",
+      detail: {
+        style_ref: doomed?.style_ref ?? null,
+        status: doomed?.status ?? null,
+        requirement_lines: lineCount ?? null,
+        purchase_orders: poIds.length,
+      },
+    });
+  }
 
   revalidatePath("/procurement/assign");
   revalidatePath("/procurement/reconciliation");
