@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 
 from app.auth import CurrentUser, get_current_user, require_roles
+from app.config import get_settings
 from app.grn_parsing import parse_grn_register
-from app.supabase_client import fetch_all
+from app.mailbox import (
+    _decode,
+    fetch_unseen,
+    mark_seen,
+    message_id,
+    sender_address,
+    should_process,
+    spreadsheet_attachments,
+)
+from app.supabase_client import fetch_all, service_client
 
 router = APIRouter(prefix="/grn", tags=["grn"])
 
@@ -57,19 +68,7 @@ def import_grn_register(
             **{k: parsed[k] for k in ("parsed", "skipped_no_grc", "skipped_no_qty")},
         }
 
-    # Replace-by-GRC. Chunked because a register can carry thousands of numbers
-    # and the delete filter is built from them.
-    grc_numbers = sorted({r["grc_no"] for r in rows})
-    for i in range(0, len(grc_numbers), 200):
-        chunk = grc_numbers[i : i + 200]
-        user.client.table("grn").delete().in_("grc_no", chunk).execute()
-
-    inserted = 0
-    for i in range(0, len(rows), 500):
-        chunk = [{**r, "imported_by": user.id} for r in rows[i : i + 500]]
-        res = user.client.table("grn").insert(chunk).execute()
-        inserted += len(res.data or [])
-
+    inserted, grc_numbers = _store(user, rows)
     matched = _match_summary(user, rows)
 
     user.client.table("audit_log").insert(
@@ -129,3 +128,181 @@ def _match_summary(user: CurrentUser, rows: list[dict[str, Any]]) -> dict[str, A
         },
         "unmatched_po_numbers": examples,
     }
+
+
+def _store(user: Any, rows: list[dict[str, Any]]) -> tuple[int, list[str]]:
+    """Write receipt lines, replacing any existing lines for the same GRC.
+
+    Chunked: a register can carry thousands of GRC numbers, and the delete
+    filter is built from them.
+    """
+    grc_numbers = sorted({r["grc_no"] for r in rows})
+    for i in range(0, len(grc_numbers), 200):
+        chunk = grc_numbers[i : i + 200]
+        user.client.table("grn").delete().in_("grc_no", chunk).execute()
+
+    inserted = 0
+    for i in range(0, len(rows), 500):
+        chunk = [{**r, "imported_by": user.id} for r in rows[i : i + 500]]
+        res = user.client.table("grn").insert(chunk).execute()
+        inserted += len(res.data or [])
+    return inserted, grc_numbers
+
+
+class _Acting:
+    """Stand-in for CurrentUser so the shared helpers take the same shape when
+    the work is done by the service account rather than a signed-in person."""
+
+    def __init__(self, user_id, client):
+        self.id = user_id
+        self.client = client
+
+
+def _log_mail(acting, mid, sender, subject, filename, status, detail, lines):
+    """Record the attempt. Never raises: a logging failure must not lose an
+    import that already succeeded."""
+    try:
+        acting.client.table("grn_mail").upsert(
+            {
+                "message_id": mid,
+                "sender": sender,
+                "subject": (subject or "")[:500],
+                "filename": filename,
+                "status": status,
+                "detail": detail,
+                "lines": lines,
+                "processed_by": acting.id,
+            },
+            on_conflict="message_id",
+        ).execute()
+    except Exception:
+        pass
+
+
+@router.post("/fetch-mail")
+def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
+    """Import any GRN register that has arrived by email.
+
+    Runs on a schedule, so there is no signed-in user: the shared secret
+    authenticates the caller, and the work is then performed as the service
+    account so RLS still applies exactly as it would for a person.
+
+    Safe to call as often as you like. A message already recorded in grn_mail is
+    skipped, and a register whose GRC numbers are already stored replaces them
+    rather than adding — so a retry after a partial failure converges instead of
+    double-counting.
+    """
+    settings = get_settings()
+    if not settings.cron_secret:
+        raise HTTPException(503, "CRON_SECRET is not configured on this service.")
+    # compare_digest, not ==, so the comparison cannot be timed to recover the
+    # secret a character at a time. This header is the only thing standing
+    # between the open internet and writing into the goods-received record.
+    if not hmac.compare_digest(x_cron_secret, settings.cron_secret):
+        raise HTTPException(401, "Bad or missing X-Cron-Secret header.")
+    if not settings.imap_user or not settings.imap_password:
+        raise HTTPException(503, "IMAP_USER and IMAP_PASSWORD are not configured.")
+
+    try:
+        messages = fetch_unseen(
+            settings.imap_host,
+            settings.imap_user,
+            settings.imap_password,
+            settings.imap_folder,
+        )
+    except Exception as e:
+        raise HTTPException(502, f"Could not read the mailbox: {e}")
+
+    if not messages:
+        return {"checked": 0, "imported": 0, "results": []}
+
+    client = service_client()
+    who = client.auth.get_user()
+    acting = _Acting(getattr(getattr(who, "user", None), "id", None), client)
+
+    # Messages already handled. The mailbox read-flag alone is not enough: a
+    # person opening the mail would mark it read and the register would then
+    # never be imported at all.
+    ids = [message_id(m["msg"]) for m in messages]
+    seen = (
+        acting.client.table("grn_mail").select("message_id").in_("message_id", ids).execute()
+    ).data or []
+    seen_ids = {r["message_id"] for r in seen}
+
+    results: list[dict[str, Any]] = []
+    imported_total = 0
+    done_uids: list[str] = []
+
+    for entry in messages:
+        msg = entry["msg"]
+        mid = message_id(msg)
+        subject = _decode(msg.get("Subject"))
+        frm = sender_address(msg)
+
+        if mid in seen_ids:
+            results.append({"message": subject, "status": "already imported"})
+            continue
+
+        ok, why = should_process(
+            msg, settings.grn_allowed_senders, settings.grn_subject_contains
+        )
+        if not ok:
+            _log_mail(acting, mid, frm, subject, None, "skipped", why, 0)
+            done_uids.append(entry["uid"])
+            results.append({"message": subject, "status": "skipped", "detail": why})
+            continue
+
+        failed = False
+        for filename, data in spreadsheet_attachments(msg):
+            try:
+                parsed = parse_grn_register(data)
+                if not parsed["header_found"]:
+                    raise ValueError(
+                        "no recognisable header row (expected GRC NO., PO NO., "
+                        "BARCODE, QTY)"
+                    )
+                rows = parsed["rows"]
+                inserted = _store(acting, rows)[0] if rows else 0
+                _log_mail(acting, mid, frm, subject, filename, "imported", None, inserted)
+                imported_total += inserted
+                results.append(
+                    {
+                        "message": subject,
+                        "file": filename,
+                        "status": "imported",
+                        "lines": inserted,
+                    }
+                )
+            except Exception as e:
+                # Deliberately left unread so the next run retries rather than
+                # losing the delivery.
+                _log_mail(acting, mid, frm, subject, filename, "failed", str(e)[:500], 0)
+                results.append(
+                    {
+                        "message": subject,
+                        "file": filename,
+                        "status": "failed",
+                        "detail": str(e)[:300],
+                    }
+                )
+                failed = True
+                break
+
+        if not failed:
+            done_uids.append(entry["uid"])
+
+    if done_uids:
+        try:
+            mark_seen(
+                settings.imap_host,
+                settings.imap_user,
+                settings.imap_password,
+                done_uids,
+                settings.imap_folder,
+            )
+        except Exception:
+            # Not fatal: grn_mail already records the message, so it is
+            # recognised and skipped next run even if the flag never got set.
+            pass
+
+    return {"checked": len(messages), "imported": imported_total, "results": results}

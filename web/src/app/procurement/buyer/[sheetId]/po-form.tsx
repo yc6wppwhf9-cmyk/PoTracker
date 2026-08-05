@@ -140,6 +140,17 @@ export function PoForm({
     );
   }
 
+  /**
+   * Selecting is a decision about the material, not about each supplier split.
+   * One tick covers every allocation of the line, so splitting a lot never
+   * means remembering to tick the halves separately.
+   */
+  function setIncluded(itemKey: string, include: boolean) {
+    setAllocs((prev) =>
+      prev.map((a) => (a.itemKey === itemKey ? { ...a, include } : a))
+    );
+  }
+
   /** Add another supplier allocation against the same requirement line. */
   function splitRow(itemKey: string) {
     setAllocs((prev) => {
@@ -155,7 +166,9 @@ export function PoForm({
       const next: Alloc = {
         id: newId(),
         itemKey,
-        include: true,
+        // Inherits the line's state: a split of a selected line is selected,
+        // and splitting an unselected one does not silently select it.
+        include: siblings.some((a) => a.include),
         ordered: remaining || 0,
         supplier: "",
         rate: "",
@@ -183,6 +196,48 @@ export function PoForm({
         <input type="hidden" name="lines" value={JSON.stringify(payload)} />
         <input type="hidden" name="etd" value={etd} />
         <input type="hidden" name="site" value={site} />
+
+        {/* Order-level fields, above the table: they apply to the whole PO and
+            are required to send it, so burying them under a 70vh scroller meant
+            they were never seen. */}
+        <div className="mb-4 flex flex-wrap items-end gap-4 rounded-xl border border-black/10 bg-white px-4 py-3 dark:border-white/10 dark:bg-neutral-900">
+          <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+            <span className="mb-1 block uppercase tracking-wide text-neutral-500">
+              ETD
+            </span>
+            <input
+              type="date"
+              form="po-form"
+              value={etd}
+              onChange={(e) => setEtd(e.target.value)}
+              className={inputBase}
+            />
+          </label>
+          <label className="min-w-0 flex-1 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+            <span className="mb-1 block uppercase tracking-wide text-neutral-500">
+              Delivery site
+            </span>
+            {/* Full width: every site name shares a 38-character legal prefix, so
+                a narrow select shows four identical-looking options. */}
+            <select
+              form="po-form"
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+              className={`w-full max-w-2xl ${inputBase}`}
+            >
+              <option value="">— select a site —</option>
+              {SITES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="max-w-xs text-xs text-neutral-500">
+            Applied to every draft created now, and changeable on a draft before
+            you send it.
+          </p>
+        </div>
 
         {/* The row is wider than most screens, so the two columns that say
             WHICH material this is are pinned; scrolled right without them a
@@ -227,12 +282,16 @@ export function PoForm({
                       {/* Pinned cells need their own background, or the
                           scrolling columns show through them. */}
                       <td className={`${tdBase} sticky left-0 z-10 w-10 ${pinBg}`}>
-                        <input
-                          type="checkbox"
-                          checked={a.include}
-                          onChange={(e) => set(a.id, "include", e.target.checked)}
-                          className="cursor-pointer"
-                        />
+                        {/* Only the first row carries the tick: it selects the
+                            whole line, splits included. */}
+                        {first && (
+                          <input
+                            type="checkbox"
+                            checked={a.include}
+                            onChange={(e) => setIncluded(k, e.target.checked)}
+                            className="cursor-pointer"
+                          />
+                        )}
                       </td>
                       <td className={`${tdBase} sticky left-10 z-10 border-r ${pinBg}`}>
                         {first ? (
@@ -352,45 +411,6 @@ export function PoForm({
           </table>
         </div>
       </form>
-
-      {/* Order-level fields. Outside the table because they apply to the whole
-          PO, not to any one line. */}
-      <div className="mt-4 flex flex-wrap items-end gap-4 rounded-xl border border-black/10 bg-white px-4 py-3 dark:border-white/10 dark:bg-neutral-900">
-        <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-          <span className="mb-1 block uppercase tracking-wide text-neutral-500">
-            ETD
-          </span>
-          <input
-            type="date"
-            form="po-form"
-            value={etd}
-            onChange={(e) => setEtd(e.target.value)}
-            className={inputBase}
-          />
-        </label>
-        <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-          <span className="mb-1 block uppercase tracking-wide text-neutral-500">
-            Delivery site
-          </span>
-          <select
-            form="po-form"
-            value={site}
-            onChange={(e) => setSite(e.target.value)}
-            className={`w-56 ${inputBase}`}
-          >
-            <option value="">— select a site —</option>
-            {SITES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="text-xs text-neutral-500">
-          Applied to every draft created now. You can change them on a draft
-          before sending it.
-        </p>
-      </div>
 
       {supplierGroups.length > 1 && (
         <p className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">

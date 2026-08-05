@@ -55,3 +55,28 @@ def user_client(access_token: str) -> Client:
             headers={"Authorization": f"Bearer {access_token}"}
         ),
     )
+
+
+def service_client() -> Client:
+    """Client signed in as the background service account.
+
+    Scheduled work has no signed-in user, but this codebase has no service-role
+    key by design — RLS is the only access boundary, and a service-role client
+    would ignore every policy. Instead a real Supabase account (holding the
+    po_team role) is signed in here, so a cron-driven import is subject to
+    exactly the same rules as the same action performed by hand.
+    """
+    s = get_settings()
+    if not s.service_email or not s.service_password:
+        raise RuntimeError(
+            "SERVICE_ACCOUNT_EMAIL and SERVICE_ACCOUNT_PASSWORD must be set for "
+            "scheduled work to authenticate."
+        )
+    client = create_client(s.supabase_url, s.supabase_anon_key)
+    res = client.auth.sign_in_with_password(
+        {"email": s.service_email, "password": s.service_password}
+    )
+    token = getattr(getattr(res, "session", None), "access_token", None)
+    if not token:
+        raise RuntimeError("Service account sign-in failed.")
+    return user_client(token)

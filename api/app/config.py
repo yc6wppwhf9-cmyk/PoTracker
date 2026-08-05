@@ -38,6 +38,27 @@ class Settings:
     # Testing: when set, every notification is redirected to this address
     # instead of its real recipients. Leave empty in production.
     notify_override_to: str = env("NOTIFY_OVERRIDE_TO")
+    # --- Automated GRN fetch (Render Cron -> POST /grn/fetch-mail) ---
+    # Shared secret the cron job presents. Without it the endpoint is closed:
+    # it runs without a signed-in user, so nothing else identifies the caller.
+    cron_secret: str = env("CRON_SECRET")
+    # A Supabase account holding the po_team role. The job signs in as this
+    # user so RLS still applies — deliberately not a service-role key, which
+    # would bypass every policy in the database.
+    service_email: str = env("SERVICE_ACCOUNT_EMAIL")
+    service_password: str = env("SERVICE_ACCOUNT_PASSWORD")
+    # Mailbox to read the register from.
+    imap_host: str = env("IMAP_HOST", "imap.gmail.com")
+    imap_user: str = env("IMAP_USER")
+    imap_password: str = env("IMAP_PASSWORD")
+    imap_folder: str = env("IMAP_FOLDER", "INBOX")
+    # Only mail from these addresses (or domains) is imported.
+    grn_allowed_senders: list[str] = [
+        a.strip() for a in env("GRN_ALLOWED_SENDERS").split(",") if a.strip()
+    ]
+    # Optional extra filter, e.g. "grc register".
+    grn_subject_contains: str = env("GRN_SUBJECT_CONTAINS")
+
     allowed_origins: list[str] = [
         o.strip().rstrip("/")
         for o in env("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
