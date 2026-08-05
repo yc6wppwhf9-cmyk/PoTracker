@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import ai, exports, item_master, notify, pos, rm_sheets
+from app.routers import ai, exports, grn, item_master, notify, pos, rm_sheets
 
 settings = get_settings()
 
@@ -27,6 +27,7 @@ app.include_router(pos.router)
 app.include_router(ai.router)
 app.include_router(exports.router)
 app.include_router(notify.router)
+app.include_router(grn.router)
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
