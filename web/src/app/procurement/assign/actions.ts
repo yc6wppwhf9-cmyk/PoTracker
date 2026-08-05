@@ -168,15 +168,16 @@ export async function notifyBuyersAction(
       sent: 0,
     };
 
+  // Mail is skipped rather than failed in several distinct situations, so the
+  // reason is carried up rather than guessed at here — an earlier version
+  // blamed the API's mail configuration for every case, including ones where
+  // the API was configured correctly and never heard from us at all.
   const res = await notifyBuyersAssigned(sheetId);
-  if (res.error) return { error: res.error, ok: false, sent: 0 };
-  // Mail is skipped rather than failed when the backend has no Resend key.
-  // Reporting that as success is how this went unnoticed for so long.
   if (!res.sent)
     return {
-      error:
-        "Assignments are saved, but no mail was sent — email is not " +
-        "configured on the API. Check /health for email_configured.",
+      error: `Assignments are saved, but no mail was sent. ${
+        res.reason ?? res.error ?? "Reason unknown."
+      }`,
       ok: false,
       sent: 0,
     };

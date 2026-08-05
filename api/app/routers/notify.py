@@ -59,7 +59,13 @@ def send_email(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
         return {
             "sent": False,
             "skipped": True,
-            "reason": "no API key" if not settings.resend_api_key else "no recipients",
+            "reason": (
+                "RESEND_API_KEY is not set on the API service, so no mail can "
+                "be sent."
+                if not settings.resend_api_key
+                else "No email address was found for any intended recipient — "
+                "check that those users have an email on their profile."
+            ),
             "recipients": len(recipients),
         }
 
