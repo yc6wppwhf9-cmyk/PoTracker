@@ -132,6 +132,8 @@ export async function saveAssignments(
   return { error: null, ok: true };
 }
 
+export type DeleteSheetState = { ok: boolean; error: string | null };
+
 export type NotifyBuyersState = {
   error: string | null;
   ok: boolean;
@@ -212,14 +214,22 @@ export async function notifyBuyersAction(
  *
  * The role is checked without requireRole() because that redirects, which in a
  * server action surfaces as a confusing navigation rather than a message.
+ *
+ * Refusals are RETURNED, never thrown. Next.js replaces a thrown server error
+ * with "An error occurred in the Server Components render" in production, so
+ * throwing turned every deliberate, explainable refusal into an opaque dialog.
  */
-export async function deleteSheetAction(sheetId: string) {
+export async function deleteSheetAction(
+  sheetId: string
+): Promise<DeleteSheetState> {
   const me = await requireUser();
   if (me.role !== "admin")
-    throw new Error(
-      "Only an administrator can delete an RM sheet. Ask an admin if this " +
-        "sheet was uploaded in error."
-    );
+    return {
+      ok: false,
+      error:
+        "Only an administrator can delete an RM sheet. Ask an admin if this " +
+        "sheet was uploaded in error.",
+    };
   const supabase = await createClient();
 
   const { count: assignedCount } = await supabase
@@ -229,11 +239,13 @@ export async function deleteSheetAction(sheetId: string) {
     .not("assigned_buyer", "is", null);
 
   if ((assignedCount ?? 0) > 0)
-    throw new Error(
-      `This sheet cannot be deleted — ${assignedCount} line(s) are already ` +
+    return {
+      ok: false,
+      error:
+        `This sheet cannot be deleted — ${assignedCount} line(s) are already ` +
         "assigned to buyers. Deleting it would destroy their POs and any " +
-        "approvals raised against it."
-    );
+        "approvals raised against it.",
+    };
 
   // Record what is about to be destroyed while it can still be read. This
   // cascade removes a sheet, its requirements, its POs and its approvals with
@@ -285,8 +297,12 @@ export async function deleteSheetAction(sheetId: string) {
   revalidatePath("/procurement/approver");
   revalidatePath("/procurement/md");
 
-  if (error) {
-    throw new Error(`Deletion failed: ${error.message}. Please check Supabase RLS DELETE policies.`);
-  }
-  return { ok: true };
+  if (error)
+    return {
+      ok: false,
+      error:
+        `Deletion failed: ${error.message}. If this mentions row-level ` +
+        "security, apply supabase/migrations/20260807_admin_only_sheet_deletion.sql.",
+    };
+  return { ok: true, error: null };
 }
