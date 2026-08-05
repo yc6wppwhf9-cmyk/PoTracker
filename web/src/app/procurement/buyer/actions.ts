@@ -22,6 +22,8 @@ type LineInput = {
   supplier?: string | null;
   rate?: number | null;
   remark?: string | null;
+  etd?: string | null;
+  site?: string | null;
 };
 
 const lotKey = (item_code: string, lot: string | null, location: string | null) =>
@@ -37,12 +39,6 @@ export async function createPo(
   const sheetId = String(formData.get("sheet_id") ?? "");
   if (!sheetId) return { error: "Missing sheet.", poId: null };
 
-  // Order-level, applied to every draft this submit creates. Optional here and
-  // required at send time, so a partly-filled draft can still be saved.
-  const etd = String(formData.get("etd") ?? "").trim() || null;
-  const site = String(formData.get("site") ?? "").trim() || null;
-  if (site && !isKnownSite(site))
-    return { error: `Unknown delivery site: ${site}.`, poId: null };
 
   let lines: LineInput[];
   try {
@@ -96,28 +92,33 @@ export async function createPo(
       poId: null,
     };
 
-  // One PO per supplier. A purchase order is issued to a single supplier and
-  // the signed document is attached to the `po` row, so a draft mixing
-  // suppliers could only ever carry one of their documents. Lines with no
-  // supplier yet are grouped together under a single unassigned draft, which
-  // the PO team can still work on.
-  const bySupplier = new Map<string, LineInput[]>();
+  // One PO per supplier, delivery date and destination. A purchase order
+  // document carries exactly one of each — one vendor, one delivery date, one
+  // ship-to — and the signed document is attached to the `po` row, so a draft
+  // mixing any of them could only ever match one of its lines. Lines missing a
+  // value group together and the PO team can still work on them.
+  const badSite = lines.find((l) => l.site && !isKnownSite(l.site));
+  if (badSite)
+    return { error: `Unknown delivery site: ${badSite.site}.`, poId: null };
+
+  const groups = new Map<string, LineInput[]>();
   for (const l of lines) {
-    const key = l.supplier?.trim() || "";
-    if (!bySupplier.has(key)) bySupplier.set(key, []);
-    bySupplier.get(key)!.push(l);
+    const key = [l.supplier?.trim() || "", l.etd || "", l.site || ""].join("|");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(l);
   }
 
   const created: string[] = [];
-  for (const [supplier, group] of bySupplier) {
+  for (const [key, group] of groups) {
+    const [supplier, etd, site] = key.split("|");
     const { data: poRows, error: poErr } = await supabase
       .from("po")
       .insert({
         rm_sheet_id: sheetId,
         created_by: me.userId,
         status: "draft",
-        etd,
-        site,
+        etd: etd || null,
+        site: site || null,
       })
       .select("id")
       .limit(1);

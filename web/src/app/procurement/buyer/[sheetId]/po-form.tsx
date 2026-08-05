@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPo, type CreatePoState } from "../actions";
-import { SITES } from "@/lib/sites";
+import { SITES, shortSite } from "@/lib/sites";
 
 export type AssignedItem = {
   item_code: string;
@@ -36,6 +36,10 @@ type Alloc = {
   supplier: string;
   rate: string;
   remark: string;
+  /** Per item, because a buyer sets a date and a destination per material.
+   *  Identical values across items are what group them onto one PO. */
+  etd: string;
+  site: string;
 };
 
 let seq = 0;
@@ -59,14 +63,14 @@ export function PoForm({
       supplier: "",
       rate: "",
       remark: "",
+      etd: "",
+      site: "",
     }))
   );
 
-  // Set once for the whole order: a PO goes to one supplier for one delivery,
-  // and drafts are already split per supplier, so repeating these down every
-  // row would be the same value typed many times.
-  const [etd, setEtd] = useState("");
-  const [site, setSite] = useState("");
+  // Only the "set for all" controls; the values themselves live per row.
+  const [bulkEtd, setBulkEtd] = useState("");
+  const [bulkSite, setBulkSite] = useState("");
 
   const [state, formAction, pending] = useActionState(
     async (prev: CreatePoState, fd: FormData) => {
@@ -106,6 +110,8 @@ export function PoForm({
       supplier: a.supplier.trim() || null,
       rate: a.rate === "" ? null : Number(a.rate),
       remark: a.remark.trim() || null,
+      etd: a.etd || null,
+      site: a.site || null,
     };
   });
 
@@ -120,18 +126,36 @@ export function PoForm({
   const supplierGroups = (() => {
     const counts = new Map<string, number>();
     for (const a of selected) {
-      const s = a.supplier.trim();
-      counts.set(s, (counts.get(s) ?? 0) + 1);
+      // One PO per supplier, delivery date and destination: a PO document
+      // carries exactly one of each, so two dates cannot share an order.
+      const k = [a.supplier.trim(), a.etd, a.site].join("|");
+      counts.set(k, (counts.get(k) ?? 0) + 1);
     }
     return [...counts.entries()];
   })();
-  const missingSupplier = supplierGroups.find(([s]) => s === "")?.[1] ?? 0;
+  const groupLabel = (key: string) => {
+    const [sup, etd, site] = key.split("|");
+    return [
+      sup || "no supplier yet",
+      etd || "no ETD",
+      site ? shortSite(site) : "no site",
+    ].join(" · ");
+  };
+  const missingSupplier = selected.filter((a) => !a.supplier.trim()).length;
+  const missingWhen = selected.filter((a) => !a.etd || !a.site).length;
 
   /** Allocated vs required for one requirement, across all its suppliers. */
   function allocatedFor(itemKey: string): number {
     return (byItem.get(itemKey) ?? [])
       .filter((a) => a.include)
       .reduce((s, a) => s + (Number(a.ordered) || 0), 0);
+  }
+
+  /** Copy one value onto every selected row. */
+  function fillDown(field: "etd" | "site", value: string) {
+    setAllocs((prev) =>
+      prev.map((a) => (a.include ? { ...a, [field]: value } : a))
+    );
   }
 
   function set(id: string, field: keyof Alloc, value: unknown) {
@@ -173,6 +197,10 @@ export function PoForm({
         supplier: "",
         rate: "",
         remark: "",
+        // The other half of a lot usually ships to the same place on the same
+        // date; only the supplier differs.
+        etd: siblings[0]?.etd ?? "",
+        site: siblings[0]?.site ?? "",
       };
       const lastIdx = prev.map((a) => a.itemKey).lastIndexOf(itemKey);
       return [...prev.slice(0, lastIdx + 1), next, ...prev.slice(lastIdx + 1)];
@@ -194,49 +222,41 @@ export function PoForm({
       <form action={formAction} id="po-form">
         <input type="hidden" name="sheet_id" value={sheetId} />
         <input type="hidden" name="lines" value={JSON.stringify(payload)} />
-        <input type="hidden" name="etd" value={etd} />
-        <input type="hidden" name="site" value={site} />
 
-        {/* Order-level fields, above the table: they apply to the whole PO and
-            are required to send it, so burying them under a 70vh scroller meant
-            they were never seen. */}
-        <div className="mb-4 flex flex-wrap items-end gap-4 rounded-xl border border-black/10 bg-white px-4 py-3 dark:border-white/10 dark:bg-neutral-900">
-          <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-            <span className="mb-1 block uppercase tracking-wide text-neutral-500">
-              ETD
-            </span>
-            <input
-              type="date"
-              form="po-form"
-              value={etd}
-              onChange={(e) => setEtd(e.target.value)}
-              className={inputBase}
-            />
-          </label>
-          <label className="min-w-0 flex-1 text-xs font-medium text-neutral-600 dark:text-neutral-300">
-            <span className="mb-1 block uppercase tracking-wide text-neutral-500">
-              Delivery site
-            </span>
-            {/* Full width: every site name shares a 38-character legal prefix, so
-                a narrow select shows four identical-looking options. */}
-            <select
-              form="po-form"
-              value={site}
-              onChange={(e) => setSite(e.target.value)}
-              className={`w-full max-w-2xl ${inputBase}`}
-            >
-              <option value="">— select a site —</option>
-              {SITES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="max-w-xs text-xs text-neutral-500">
-            Applied to every draft created now, and changeable on a draft before
-            you send it.
-          </p>
+        {/* A "fill down" control, because ETD and site are usually the same
+            for every line and typing them per row would be tedious. */}
+        <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-black/10 bg-white px-4 py-3 text-xs dark:border-white/10 dark:bg-neutral-900">
+          <span className="font-medium text-neutral-500">
+            Set for all selected:
+          </span>
+          <input
+            type="date"
+            value={bulkEtd}
+            onChange={(e) => {
+              setBulkEtd(e.target.value);
+              if (e.target.value) fillDown("etd", e.target.value);
+            }}
+            className={inputBase}
+          />
+          <select
+            value={bulkSite}
+            onChange={(e) => {
+              setBulkSite(e.target.value);
+              if (e.target.value) fillDown("site", e.target.value);
+            }}
+            className={`w-full max-w-xl ${inputBase}`}
+          >
+            <option value="">— delivery site —</option>
+            {SITES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <span className="text-neutral-400">
+            Each row can still differ; rows sharing a supplier, date and site
+            become one PO.
+          </span>
         </div>
 
         {/* The row is wider than most screens, so the two columns that say
@@ -249,7 +269,8 @@ export function PoForm({
                 <th className={`${thBase} sticky left-0 z-30`}></th>
                 <th className={`${thBase} sticky left-10 z-30 border-r`}>Item</th>
                 {["Lot", "Category", "Required", "Order qty", "Supplier",
-                  "Rate", "Value", "Purchase remark", ""].map((h, i) => (
+                  "ETD", "Delivery site", "Rate", "Value", "Purchase remark",
+                  ""].map((h, i) => (
                   <th key={h || `blank${i}`} className={thBase}>
                     {h}
                   </th>
@@ -363,6 +384,31 @@ export function PoForm({
                       </td>
                       <td className={tdBase}>
                         <input
+                          type="date"
+                          value={a.etd}
+                          onChange={(e) => set(a.id, "etd", e.target.value)}
+                          disabled={!a.include}
+                          className={`w-36 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        <select
+                          value={a.site}
+                          onChange={(e) => set(a.id, "site", e.target.value)}
+                          disabled={!a.include}
+                          className={`w-44 ${inputBase}`}
+                          title={a.site || undefined}
+                        >
+                          <option value="">— site —</option>
+                          {SITES.map((sName) => (
+                            <option key={sName} value={sName}>
+                              {shortSite(sName)}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className={tdBase}>
+                        <input
                           type="number"
                           step="any"
                           min="0"
@@ -417,16 +463,24 @@ export function PoForm({
           <strong>{supplierGroups.length} separate PO drafts</strong> will be
           created, one per supplier — each gets its own document from the PO
           team:{" "}
-          {supplierGroups
-            .map(([s, n]) => `${s || "no supplier yet"} (${n})`)
-            .join(", ")}
+          {supplierGroups.map(([k, n]) => `${groupLabel(k)} (${n})`).join("; ")}
           .
         </p>
       )}
-      {missingSupplier > 0 && (
+      {(missingSupplier > 0 || missingWhen > 0) && (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          {missingSupplier} selected line(s) have no supplier. They will be
-          grouped into one draft — set the supplier to split them out.
+          {missingSupplier > 0 && (
+            <>
+              {missingSupplier} selected line(s) have no supplier — they are
+              grouped into one draft until you set it.{" "}
+            </>
+          )}
+          {missingWhen > 0 && (
+            <>
+              {missingWhen} line(s) still need an ETD and delivery site; both are
+              required before the PO can be sent to the PO team.
+            </>
+          )}
         </p>
       )}
 
