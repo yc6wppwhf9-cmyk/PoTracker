@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { fetchAll } from "@/lib/supabase/fetch-all";
-import { notifyPoDrafted } from "@/lib/notify";
+// Notification for drafts is now sent explicitly via the "Send" action.
+// The buyer creating a draft should not trigger a notification.
+
 
 export type CreatePoState = {
   error: string | null;
@@ -157,8 +159,9 @@ export async function createPo(
       },
     });
 
-    // Hand off to the PO team. Non-fatal: the draft is already created.
-    await notifyPoDrafted(poId);
+    // The draft is created, but do not notify the PO team yet. A buyer must
+    // explicitly Send the draft to hand it off. This prevents noisy mail on
+    // intermediate drafts.
     created.push(poId);
   }
 
@@ -175,4 +178,50 @@ function partial(created: string[], message: string, supplier: string): string {
     `${created.length} PO draft(s) were created, but the one for ${who} ` +
     `failed: ${message}. Deselect the lines already drafted before retrying.`
   );
+}
+
+/*
+ * Server action: send a drafted PO. This calls the API service which holds
+ * the sending credentials. The API marks the PO as sent and notifies the PO
+ * team. The web action mirrors the API result and revalidates pages.
+ */
+export async function sendPo(formData: FormData): Promise<void> {
+  await requireRole("buyer");
+  const poId = String(formData.get("po_id") ?? "");
+  if (!poId) throw new Error("Missing PO.");
+
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const base =
+    process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (!base) throw new Error("API_BASE_URL not configured on the web app.");
+  if (!session?.access_token) throw new Error("Session expired; sign in again.");
+
+  const res = await fetch(`${base.replace(/\/+$/,'')}/pos/${poId}/send`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const raw = await res.text();
+  if (!res.ok) {
+    throw new Error(`Send failed: HTTP ${res.status} ${raw.slice(0,200)}`);
+  }
+  // Try to parse JSON but ignore if not JSON.
+  try {
+    const parsed = JSON.parse(raw);
+    // Revalidate relevant pages. If the API returned the sheet id, use it.
+    if (parsed?.notified || parsed?.status) {
+      // best-effort revalidation
+      revalidatePath("/procurement/buyer");
+      revalidatePath("/procurement/po-team");
+      revalidatePath("/procurement/reconciliation");
+    }
+  } catch {}
+
+  return;
 }
