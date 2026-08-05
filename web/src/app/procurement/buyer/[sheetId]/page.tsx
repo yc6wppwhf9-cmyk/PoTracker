@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm, type AssignedItem } from "./po-form";
-import { SendPoBtn } from "./send-po-btn";
+import { SendPoBtn, PoDetailsFields } from "./send-po-btn";
+import { shortSite } from "@/lib/sites";
 
 /** The supplier a draft is for; drafts are split one per supplier. */
 function supplierOf(
@@ -83,7 +84,7 @@ export default async function BuyerSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, created_at, doc_path, po_line(item_code, lot, location, ordered_qty, supplier, remark, item_master(name))"
+      "id, status, created_at, doc_path, etd, site, po_line(item_code, lot, location, ordered_qty, supplier, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .eq("created_by", profile.userId)
@@ -158,6 +159,12 @@ export default async function BuyerSheetPage({
                         {p.status === "draft" ? "draft — not sent" : p.status}
                       </span>
                       {p.doc_path ? "📎 doc" : "—"}
+                      {p.status !== "draft" && (
+                        <span className="text-xs text-neutral-500">
+                          {p.etd ? `ETD ${p.etd}` : "no ETD"} ·{" "}
+                          {shortSite(p.site)}
+                        </span>
+                      )}
                       {p.status === "draft" && (
                         <SendPoBtn
                           poId={p.id}
@@ -167,6 +174,11 @@ export default async function BuyerSheetPage({
                       )}
                     </span>
                   </div>
+                  {p.status === "draft" && (
+                    <div className="border-t border-black/5 px-4 py-2 dark:border-white/5">
+                      <PoDetailsFields poId={p.id} etd={p.etd} site={p.site} />
+                    </div>
+                  )}
                   <details className="group border-t border-black/5 dark:border-white/5">
                     <summary className="cursor-pointer list-none px-4 py-2 text-xs text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
                       <span className="group-open:hidden">▸ View items</span>

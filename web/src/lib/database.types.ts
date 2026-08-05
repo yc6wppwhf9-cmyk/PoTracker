@@ -178,8 +178,10 @@ export type Database = {
           created_at: string
           created_by: string | null
           doc_path: string | null
+          etd: string | null
           id: string
           rm_sheet_id: string
+          site: string | null
           status: string
           uploaded_by: string | null
         }
@@ -187,8 +189,10 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           doc_path?: string | null
+          etd?: string | null
           id?: string
           rm_sheet_id: string
+          site?: string | null
           status?: string
           uploaded_by?: string | null
         }
@@ -196,8 +200,10 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           doc_path?: string | null
+          etd?: string | null
           id?: string
           rm_sheet_id?: string
+          site?: string | null
           status?: string
           uploaded_by?: string | null
         }

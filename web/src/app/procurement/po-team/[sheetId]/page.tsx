@@ -50,7 +50,7 @@ export default async function PoTeamSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, doc_path, created_at, created_by, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, item_master(name))"
+      "id, status, doc_path, created_at, created_by, etd, site, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     // Drafts belong to the buyer until they press Send. Showing them here would
@@ -122,7 +122,16 @@ export default async function PoTeamSheetPage({
                   <div className="font-medium">
                     {suppliersOf(lines) ?? "No supplier set"}
                   </div>
-                  <div className="text-xs text-neutral-500">Drafted by {buyer}</div>
+                  <div className="text-xs text-neutral-500">
+                    Drafted by {buyer} · ETD{" "}
+                    <span className="font-medium text-neutral-700 dark:text-neutral-300">
+                      {p.etd ?? "not set"}
+                    </span>{" "}
+                    · Deliver to{" "}
+                    <span className="font-medium text-neutral-700 dark:text-neutral-300">
+                      {p.site ?? "not set"}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="text-neutral-500">

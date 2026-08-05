@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPo, type CreatePoState } from "../actions";
+import { SITES } from "@/lib/sites";
 
 export type AssignedItem = {
   item_code: string;
@@ -18,6 +19,28 @@ const initial: CreatePoState = { error: null, poId: null };
 const keyOf = (it: { item_code: string; lot: string | null; location: string | null }) =>
   `${it.item_code}__${it.lot ?? ""}__${it.location ?? ""}`;
 
+/**
+ * One supplier allocation of one requirement line.
+ *
+ * A lot can be bought from more than one supplier, so the requirement is not
+ * one row but a list of allocations against it. Reconciliation sums ordered
+ * quantity per (item_code, lot, location), so two allocations of the same lot
+ * add up to the same comparison — and because drafts are split per supplier,
+ * they become two POs with two documents.
+ */
+type Alloc = {
+  id: string;
+  itemKey: string;
+  include: boolean;
+  ordered: number | string;
+  supplier: string;
+  rate: string;
+  remark: string;
+};
+
+let seq = 0;
+const newId = () => `a${++seq}`;
+
 export function PoForm({
   sheetId,
   items,
@@ -26,20 +49,25 @@ export function PoForm({
   items: AssignedItem[];
 }) {
   const router = useRouter();
-  const [rows, setRows] = useState(() =>
-    Object.fromEntries(
-      items.map((it) => [
-        keyOf(it),
-        {
-          include: false,
-          ordered: it.required_qty,
-          supplier: "",
-          rate: "",
-          remark: "",
-        },
-      ])
-    )
+
+  const [allocs, setAllocs] = useState<Alloc[]>(() =>
+    items.map((it) => ({
+      id: newId(),
+      itemKey: keyOf(it),
+      include: false,
+      ordered: it.required_qty,
+      supplier: "",
+      rate: "",
+      remark: "",
+    }))
   );
+
+  // Set once for the whole order: a PO goes to one supplier for one delivery,
+  // and drafts are already split per supplier, so repeating these down every
+  // row would be the same value typed many times.
+  const [etd, setEtd] = useState("");
+  const [site, setSite] = useState("");
+
   const [state, formAction, pending] = useActionState(
     async (prev: CreatePoState, fd: FormData) => {
       const res = await createPo(prev, fd);
@@ -49,224 +77,323 @@ export function PoForm({
     initial
   );
 
-  // The Plant column was dropped as noise — it is the same value on nearly
-  // every row. But location is part of the join key (item_code, lot, location),
-  // so two rows can differ by nothing else, and without it they would look
-  // identical while being separate lines. Show it only where it is the only
-  // thing telling rows apart.
-  const ambiguous = useMemo(() => {
-    const seen = new Map<string, number>();
-    for (const it of items) {
-      const k = `${it.item_code}__${it.lot ?? ""}`;
-      seen.set(k, (seen.get(k) ?? 0) + 1);
+  const byItem = useMemo(() => {
+    const m = new Map<string, Alloc[]>();
+    for (const a of allocs) {
+      if (!m.has(a.itemKey)) m.set(a.itemKey, []);
+      m.get(a.itemKey)!.push(a);
     }
-    return seen;
-  }, [items]);
-  const needsPlant = (it: AssignedItem) =>
-    (ambiguous.get(`${it.item_code}__${it.lot ?? ""}`) ?? 0) > 1;
+    return m;
+  }, [allocs]);
 
-  const selected = useMemo(
-    () => items.filter((it) => rows[keyOf(it)]?.include),
-    [items, rows]
+  const itemByKey = useMemo(
+    () => new Map(items.map((it) => [keyOf(it), it])),
+    [items]
   );
 
-  const payload = selected.map((it) => ({
-    item_code: it.item_code,
-    lot: it.lot,
-    location: it.location,
-    ordered_qty: Number(rows[keyOf(it)].ordered) || 0,
-    // MOQ is not part of this process; the column stays at its 0 default, so
-    // the reconciliation view's expected_max falls back to the required
-    // quantity and nothing is ever flagged as MOQ-forced.
-    moq: 0,
-    supplier: rows[keyOf(it)].supplier?.trim() || null,
-    rate: rows[keyOf(it)].rate === "" ? null : Number(rows[keyOf(it)].rate),
-    remark: rows[keyOf(it)].remark?.trim() || null,
-  }));
+  const selected = allocs.filter((a) => a.include);
 
-  const orderValue = selected.reduce((sum, it) => {
-    const r = rows[keyOf(it)];
-    const rate = r.rate === "" ? 0 : Number(r.rate) || 0;
-    return sum + rate * (Number(r.ordered) || 0);
-  }, 0);
+  const payload = selected.map((a) => {
+    const it = itemByKey.get(a.itemKey)!;
+    return {
+      item_code: it.item_code,
+      lot: it.lot,
+      location: it.location,
+      ordered_qty: Number(a.ordered) || 0,
+      // MOQ is not part of this process; the column stays at its 0 default, so
+      // the reconciliation view's expected_max falls back to the requirement.
+      moq: 0,
+      supplier: a.supplier.trim() || null,
+      rate: a.rate === "" ? null : Number(a.rate),
+      remark: a.remark.trim() || null,
+    };
+  });
 
-  // Mirrors the grouping createPo performs, so the count shown on the button
-  // is the number of drafts actually produced.
-  const supplierGroups = useMemo(() => {
+  const orderValue = selected.reduce(
+    (sum, a) => sum + (Number(a.rate) || 0) * (Number(a.ordered) || 0),
+    0
+  );
+
+  // Mirrors the grouping createPo performs, so the button says how many drafts
+  // will actually appear. Derived directly rather than memoised: `selected` is
+  // rebuilt every render, so a memo keyed on it would never hit anyway.
+  const supplierGroups = (() => {
     const counts = new Map<string, number>();
-    for (const it of selected) {
-      const s = rows[keyOf(it)].supplier?.trim() || "";
+    for (const a of selected) {
+      const s = a.supplier.trim();
       counts.set(s, (counts.get(s) ?? 0) + 1);
     }
     return [...counts.entries()];
-  }, [selected, rows]);
-  const missingSupplier =
-    supplierGroups.find(([s]) => s === "")?.[1] ?? 0;
+  })();
+  const missingSupplier = supplierGroups.find(([s]) => s === "")?.[1] ?? 0;
 
-
-  function set(
-    k: string,
-    field: "include" | "ordered" | "supplier" | "rate" | "remark",
-    value: unknown
-  ) {
-    setRows((r) => ({ ...r, [k]: { ...r[k], [field]: value } }));
+  /** Allocated vs required for one requirement, across all its suppliers. */
+  function allocatedFor(itemKey: string): number {
+    return (byItem.get(itemKey) ?? [])
+      .filter((a) => a.include)
+      .reduce((s, a) => s + (Number(a.ordered) || 0), 0);
   }
 
-  return (
-    <form action={formAction}>
-      <input type="hidden" name="sheet_id" value={sheetId} />
-      <input type="hidden" name="lines" value={JSON.stringify(payload)} />
+  function set(id: string, field: keyof Alloc, value: unknown) {
+    setAllocs((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, [field]: value } : a))
+    );
+  }
 
-      {/* The row is wider than most screens, so the two columns that say WHICH
-          material this is — the checkbox and the item — are pinned. Scrolled
-          right without them, every row shows only its category, and a buyer is
-          typing supplier and rate against a line they cannot identify.
-          max-h + sticky header keeps the column names visible down a long
-          sheet; without it you lose track of which field you are in. */}
-      <div className="max-h-[70vh] overflow-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
-        <table className="w-full border-separate border-spacing-0 text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
-            <tr>
-              <th className="sticky left-0 top-0 z-30 border-b border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900"></th>
-              <th className="sticky left-10 top-0 z-30 border-b border-r border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900">
-                Item
-              </th>
-              {["Lot", "Category", "Required", "Order qty",
-                "Supplier", "Rate", "Value", "Purchase remark"].map((h) => (
-                <th
-                  key={h}
-                  className="sticky top-0 z-20 whitespace-nowrap border-b border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it) => {
-              const k = keyOf(it);
-              const row = rows[k];
-              return (
-                <tr
-                  key={k}
-                  className={
-                    row.include
-                      ? "bg-indigo-50/60 dark:bg-indigo-950/20"
-                      : "odd:bg-black/[0.015] dark:odd:bg-white/[0.02]"
-                  }
-                >
-                  {/* Pinned cells need their own background, or the scrolling
-                      columns show through them. The row tint is repeated for
-                      the same reason. */}
-                  <td
-                    className={`sticky left-0 z-10 w-10 border-b border-black/5 px-3 py-1.5 dark:border-white/5 ${
-                      row.include
-                        ? "bg-indigo-50 dark:bg-indigo-950/40"
-                        : "bg-white dark:bg-neutral-900"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={row.include}
-                      onChange={(e) => set(k, "include", e.target.checked)}
-                      className="cursor-pointer"
-                    />
-                  </td>
-                  <td
-                    className={`sticky left-10 z-10 border-b border-r border-black/5 px-3 py-1.5 dark:border-white/5 ${
-                      row.include
-                        ? "bg-indigo-50 dark:bg-indigo-950/40"
-                        : "bg-white dark:bg-neutral-900"
-                    }`}
-                  >
-                    <div className="max-w-[240px] truncate font-medium" title={it.name}>
-                      {it.name}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-neutral-500">
-                      <span className="font-mono">{it.item_code}</span>
-                      {needsPlant(it) && it.location && (
-                        <span
-                          className="rounded bg-neutral-100 px-1 py-px text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
-                          title="Same item and lot also appears at another plant"
-                        >
-                          {it.location}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 font-medium text-neutral-600 dark:border-white/5 dark:text-neutral-300">
-                    {it.lot ?? "—"}
-                  </td>
-                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 text-neutral-500 dark:border-white/5">
-                    {it.category}
-                  </td>
-                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 text-right tabular-nums text-neutral-500 dark:border-white/5">
-                    {it.required_qty.toLocaleString()}
-                  </td>
-                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={row.ordered}
-                      onChange={(e) => set(k, "ordered", e.target.value)}
-                      disabled={!row.include}
-                      className="w-28 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
-                    />
-                  </td>
-                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
-                    <input
-                      type="text"
-                      value={row.supplier}
-                      onChange={(e) => set(k, "supplier", e.target.value)}
-                      disabled={!row.include}
-                      placeholder="supplier name"
-                      className="w-40 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
-                    />
-                  </td>
-                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={row.rate}
-                      onChange={(e) => set(k, "rate", e.target.value)}
-                      disabled={!row.include}
-                      placeholder="per unit"
-                      className="w-24 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
-                    />
-                  </td>
-                  <td className="whitespace-nowrap border-b border-black/5 px-3 py-1.5 text-right tabular-nums text-neutral-600 dark:border-white/5 dark:text-neutral-300">
-                    {row.include && row.rate !== ""
-                      ? (
-                          (Number(row.rate) || 0) * (Number(row.ordered) || 0)
-                        ).toLocaleString(undefined, {
-                          maximumFractionDigits: 2,
-                        })
-                      : "—"}
-                  </td>
-                  <td className="border-b border-black/5 px-3 py-1.5 dark:border-white/5">
-                    <input
-                      type="text"
-                      value={row.remark}
-                      onChange={(e) => set(k, "remark", e.target.value)}
-                      disabled={!row.include}
-                      placeholder="note"
-                      className="w-40 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950"
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+  /** Add another supplier allocation against the same requirement line. */
+  function splitRow(itemKey: string) {
+    setAllocs((prev) => {
+      const siblings = prev.filter((a) => a.itemKey === itemKey);
+      const it = itemByKey.get(itemKey)!;
+      const taken = siblings
+        .filter((a) => a.include)
+        .reduce((s, a) => s + (Number(a.ordered) || 0), 0);
+      // Default the new allocation to whatever is still unallocated, so the
+      // common case — split the remainder to a second supplier — needs no
+      // arithmetic from the buyer.
+      const remaining = Math.max(0, it.required_qty - taken);
+      const next: Alloc = {
+        id: newId(),
+        itemKey,
+        include: true,
+        ordered: remaining || 0,
+        supplier: "",
+        rate: "",
+        remark: "",
+      };
+      const lastIdx = prev.map((a) => a.itemKey).lastIndexOf(itemKey);
+      return [...prev.slice(0, lastIdx + 1), next, ...prev.slice(lastIdx + 1)];
+    });
+  }
+
+  function removeAlloc(id: string) {
+    setAllocs((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  const thBase =
+    "sticky top-0 z-20 whitespace-nowrap border-b border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900";
+  const tdBase = "border-b border-black/5 px-3 py-1.5 dark:border-white/5";
+  const inputBase =
+    "rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950";
+
+  return (
+    <>
+      <form action={formAction} id="po-form">
+        <input type="hidden" name="sheet_id" value={sheetId} />
+        <input type="hidden" name="lines" value={JSON.stringify(payload)} />
+        <input type="hidden" name="etd" value={etd} />
+        <input type="hidden" name="site" value={site} />
+
+        {/* The row is wider than most screens, so the two columns that say
+            WHICH material this is are pinned; scrolled right without them a
+            buyer types supplier and rate against a line they cannot identify. */}
+        <div className="max-h-[70vh] overflow-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
+          <table className="w-full border-separate border-spacing-0 text-sm">
+            <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
+              <tr>
+                <th className={`${thBase} sticky left-0 z-30`}></th>
+                <th className={`${thBase} sticky left-10 z-30 border-r`}>Item</th>
+                {["Lot", "Category", "Required", "Order qty", "Supplier",
+                  "Rate", "Value", "Purchase remark", ""].map((h, i) => (
+                  <th key={h || `blank${i}`} className={thBase}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => {
+                const k = keyOf(it);
+                const group = byItem.get(k) ?? [];
+                const allocated = allocatedFor(k);
+                const anyIncluded = group.some((a) => a.include);
+                const over = anyIncluded && allocated > it.required_qty;
+                const under = anyIncluded && allocated < it.required_qty;
+
+                return group.map((a, idx) => {
+                  const first = idx === 0;
+                  const pinBg = a.include
+                    ? "bg-indigo-50 dark:bg-indigo-950/40"
+                    : "bg-white dark:bg-neutral-900";
+                  return (
+                    <tr
+                      key={a.id}
+                      className={
+                        a.include
+                          ? "bg-indigo-50/60 dark:bg-indigo-950/20"
+                          : "odd:bg-black/[0.015] dark:odd:bg-white/[0.02]"
+                      }
+                    >
+                      {/* Pinned cells need their own background, or the
+                          scrolling columns show through them. */}
+                      <td className={`${tdBase} sticky left-0 z-10 w-10 ${pinBg}`}>
+                        <input
+                          type="checkbox"
+                          checked={a.include}
+                          onChange={(e) => set(a.id, "include", e.target.checked)}
+                          className="cursor-pointer"
+                        />
+                      </td>
+                      <td className={`${tdBase} sticky left-10 z-10 border-r ${pinBg}`}>
+                        {first ? (
+                          <>
+                            <div
+                              className="max-w-[240px] truncate font-medium"
+                              title={it.name}
+                            >
+                              {it.name}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-neutral-500">
+                              <span className="font-mono">{it.item_code}</span>
+                              <button
+                                type="button"
+                                onClick={() => splitRow(k)}
+                                title="Buy this line from more than one supplier"
+                                className="rounded border border-indigo-200 px-1 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                              >
+                                + split
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="pl-3 text-xs text-neutral-500">
+                            ↳ same line, another supplier
+                          </div>
+                        )}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap font-medium text-neutral-600 dark:text-neutral-300`}>
+                        {first ? (it.lot ?? "—") : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-neutral-500`}>
+                        {first ? it.category : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-500`}>
+                        {first ? it.required_qty.toLocaleString() : ""}
+                        {first && group.length > 1 && anyIncluded && (
+                          <div
+                            className={`text-[11px] ${
+                              over || under
+                                ? "text-amber-700 dark:text-amber-400"
+                                : "text-green-700 dark:text-green-400"
+                            }`}
+                          >
+                            {allocated.toLocaleString()} allocated
+                          </div>
+                        )}
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={a.ordered}
+                          onChange={(e) => set(a.id, "ordered", e.target.value)}
+                          disabled={!a.include}
+                          className={`w-28 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="text"
+                          value={a.supplier}
+                          onChange={(e) => set(a.id, "supplier", e.target.value)}
+                          disabled={!a.include}
+                          placeholder="supplier name"
+                          className={`w-40 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={a.rate}
+                          onChange={(e) => set(a.id, "rate", e.target.value)}
+                          disabled={!a.include}
+                          placeholder="per unit"
+                          className={`w-24 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-600 dark:text-neutral-300`}>
+                        {a.include && a.rate !== ""
+                          ? ((Number(a.rate) || 0) * (Number(a.ordered) || 0)).toLocaleString(
+                              undefined,
+                              { maximumFractionDigits: 2 }
+                            )
+                          : "—"}
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="text"
+                          value={a.remark}
+                          onChange={(e) => set(a.id, "remark", e.target.value)}
+                          disabled={!a.include}
+                          placeholder="note"
+                          className={`w-40 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        {!first && (
+                          <button
+                            type="button"
+                            onClick={() => removeAlloc(a.id)}
+                            title="Remove this split"
+                            className="rounded px-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                });
+              })}
+            </tbody>
+          </table>
+        </div>
+      </form>
+
+      {/* Order-level fields. Outside the table because they apply to the whole
+          PO, not to any one line. */}
+      <div className="mt-4 flex flex-wrap items-end gap-4 rounded-xl border border-black/10 bg-white px-4 py-3 dark:border-white/10 dark:bg-neutral-900">
+        <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          <span className="mb-1 block uppercase tracking-wide text-neutral-500">
+            ETD
+          </span>
+          <input
+            type="date"
+            form="po-form"
+            value={etd}
+            onChange={(e) => setEtd(e.target.value)}
+            className={inputBase}
+          />
+        </label>
+        <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          <span className="mb-1 block uppercase tracking-wide text-neutral-500">
+            Delivery site
+          </span>
+          <select
+            form="po-form"
+            value={site}
+            onChange={(e) => setSite(e.target.value)}
+            className={`w-56 ${inputBase}`}
+          >
+            <option value="">— select a site —</option>
+            {SITES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs text-neutral-500">
+          Applied to every draft created now. You can change them on a draft
+          before sending it.
+        </p>
       </div>
 
-      {/* A PO goes to one supplier and carries one signed document, so the
-          selection is split per supplier. Saying so up front means the buyer
-          is not surprised by three drafts appearing. */}
       {supplierGroups.length > 1 && (
-        <p className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+        <p className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
           <strong>{supplierGroups.length} separate PO drafts</strong> will be
           created, one per supplier — each gets its own document from the PO
           team:{" "}
@@ -308,6 +435,7 @@ export function PoForm({
           {state.error && <span className="text-sm text-red-600">{state.error}</span>}
           <button
             type="submit"
+            form="po-form"
             disabled={pending || selected.length === 0}
             className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
           >
@@ -319,6 +447,6 @@ export function PoForm({
           </button>
         </div>
       </div>
-    </form>
+    </>
   );
 }

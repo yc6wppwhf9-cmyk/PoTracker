@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { notifyPoDrafted } from "@/lib/notify";
+import { isKnownSite } from "@/lib/sites";
 
 export type CreatePoState = {
   error: string | null;
@@ -35,6 +36,13 @@ export async function createPo(
 
   const sheetId = String(formData.get("sheet_id") ?? "");
   if (!sheetId) return { error: "Missing sheet.", poId: null };
+
+  // Order-level, applied to every draft this submit creates. Optional here and
+  // required at send time, so a partly-filled draft can still be saved.
+  const etd = String(formData.get("etd") ?? "").trim() || null;
+  const site = String(formData.get("site") ?? "").trim() || null;
+  if (site && !isKnownSite(site))
+    return { error: `Unknown delivery site: ${site}.`, poId: null };
 
   let lines: LineInput[];
   try {
@@ -104,7 +112,13 @@ export async function createPo(
   for (const [supplier, group] of bySupplier) {
     const { data: poRows, error: poErr } = await supabase
       .from("po")
-      .insert({ rm_sheet_id: sheetId, created_by: me.userId, status: "draft" })
+      .insert({
+        rm_sheet_id: sheetId,
+        created_by: me.userId,
+        status: "draft",
+        etd,
+        site,
+      })
       .select("id")
       .limit(1);
     if (poErr || !poRows?.[0])
@@ -171,6 +185,42 @@ export async function createPo(
 export type SendPoState = { error: string | null; ok: boolean };
 
 /**
+ * Correct the ETD or delivery site on a draft before it is sent.
+ *
+ * One submit can create several drafts — one per supplier — all carrying the
+ * same order-level values, and suppliers rarely deliver on the same date. RLS
+ * permits this only while the PO is a draft and only for its creator.
+ */
+export async function updatePoDetails(
+  poId: string,
+  etd: string | null,
+  site: string | null
+): Promise<SendPoState> {
+  const me = await requireRole("buyer");
+  const supabase = await createClient();
+  if (!poId) return { error: "Missing PO.", ok: false };
+  if (site && !isKnownSite(site))
+    return { error: `Unknown delivery site: ${site}.`, ok: false };
+
+  const { data, error } = await supabase
+    .from("po")
+    .update({ etd: etd || null, site: site || null })
+    .eq("id", poId)
+    .eq("created_by", me.userId)
+    .eq("status", "draft")
+    .select("id, rm_sheet_id");
+  if (error) return { error: error.message, ok: false };
+  if ((data?.length ?? 0) === 0)
+    return {
+      error: "Could not update — the PO may already have been sent.",
+      ok: false,
+    };
+
+  revalidatePath(`/procurement/buyer/${data![0].rm_sheet_id}`);
+  return { error: null, ok: true };
+}
+
+/**
  * Hand a draft to the PO team.
  *
  * This is the only point at which a PO becomes visible to them and the only
@@ -185,7 +235,7 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
 
   const { data: poRows, error: readErr } = await supabase
     .from("po")
-    .select("id, status, created_by, rm_sheet_id, po_line(id, supplier)")
+    .select("id, status, created_by, rm_sheet_id, etd, site, po_line(id, supplier)")
     .eq("id", poId)
     .limit(1);
   if (readErr) return { error: readErr.message, ok: false };
@@ -199,6 +249,11 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
   const lines = (po.po_line as unknown as { id: string; supplier: string | null }[]) ?? [];
   if (lines.length === 0)
     return { error: "This PO has no lines.", ok: false };
+  // The PO team cannot produce a document without knowing when it is due and
+  // where it ships, so these are required to send rather than to draft.
+  if (!po.etd) return { error: "Set the ETD before sending this PO.", ok: false };
+  if (!po.site)
+    return { error: "Set the delivery site before sending this PO.", ok: false };
   // The PO team's whole job is to produce the document for a named supplier,
   // so sending one without a supplier would hand them an unanswerable task.
   if (lines.some((l) => !l.supplier?.trim()))
