@@ -54,37 +54,29 @@ begin
 end $$;
 
 
--- Confirm. Counted the same way, so a table added by a later migration is
--- reported rather than breaking the query.
-create temp table if not exists _reset_counts (t text, n bigint) on commit drop;
-truncate _reset_counts;
-
-do $$
-declare
-  t text;
-begin
-  foreach t in array array[
-    'rm_sheet', 'rm_requirement', 'po', 'po_line', 'approval', 'escalation',
-    'grn', 'grn_mail', 'audit_log', 'item_master', 'uom_conversion', 'profiles'
-  ] loop
-    if to_regclass('public.' || t) is null then
-      insert into _reset_counts values (t || '  (not created yet)', null);
-    else
-      execute format('insert into _reset_counts select %L, count(*) from public.%I', t, t);
-    end if;
-  end loop;
-end $$;
-
-select t as table_name,
-       n as rows,
-       case
-         when n is null then 'n/a'
-         when t = 'profiles' then 'kept — your logins'
-         when n = 0 then 'cleared'
-         else 'STILL HAS ROWS'
-       end as result
-from _reset_counts
-order by t;
+-- Confirm.
+--
+-- A plain query rather than a temp table: creating one made the SQL Editor warn
+-- that a table was being created without row-level security, which is a
+-- meaningless question about a throwaway that is dropped at commit — and a
+-- warning nobody should have to reason about beside a destructive script.
+--
+-- If a table has not been created yet this errors on that name; the deletes
+-- above have already run and are unaffected, so delete the offending line and
+-- run this part again.
+select 'rm_sheet'       as table_name, count(*) as rows from public.rm_sheet
+union all select 'rm_requirement', count(*) from public.rm_requirement
+union all select 'po',             count(*) from public.po
+union all select 'po_line',        count(*) from public.po_line
+union all select 'approval',       count(*) from public.approval
+union all select 'escalation',     count(*) from public.escalation
+union all select 'grn',            count(*) from public.grn
+union all select 'grn_mail',       count(*) from public.grn_mail
+union all select 'audit_log',      count(*) from public.audit_log
+union all select 'uom_conversion', count(*) from public.uom_conversion
+union all select 'item_master',    count(*) from public.item_master
+union all select 'profiles (kept)', count(*) from public.profiles
+order by 1;
 
 
 -- ─────────────────────────────────────────────────────────────────────────
