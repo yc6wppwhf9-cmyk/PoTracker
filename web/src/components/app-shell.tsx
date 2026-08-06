@@ -241,15 +241,27 @@ export function AppShell({
           {/* User Profile, Role Badge & Logout Controls */}
           <div className="flex items-center gap-3 text-sm">
             {/* Styled User Chip with Initials Avatar */}
-            <div className="flex items-center gap-2.5 rounded-full border border-slate-200/80 bg-white/80 py-1 pl-1 pr-3 shadow-xs dark:border-slate-800 dark:bg-slate-900/80">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-600 to-blue-600 text-[11px] font-bold text-white shadow-xs">
+            {/* Padding follows the text: with the name and email hidden on a
+                phone, a fixed pr-3 left the chip a lopsided pill around a
+                lone avatar. */}
+            <div className="flex items-center gap-2.5 rounded-full border border-slate-200/80 bg-white/80 py-1 pl-1 pr-1 shadow-xs sm:pr-3 dark:border-slate-800 dark:bg-slate-900/80">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-600 to-blue-600 text-[11px] font-bold text-white shadow-xs">
                 {initials}
               </span>
-              <div className="flex flex-col text-left">
-                <span className="hidden text-xs font-semibold text-slate-800 sm:inline dark:text-slate-200">
+              {/* min-w-0 + truncate: without them a long name or email widens
+                  the header and pushes the role badge and Sign out off-screen,
+                  since flex children refuse to shrink below their content. */}
+              <div className="hidden min-w-0 max-w-[12rem] flex-col text-left sm:flex">
+                <span
+                  className="truncate text-xs font-semibold text-slate-800 dark:text-slate-200"
+                  title={profile.fullName ?? undefined}
+                >
                   {profile.fullName || profile.email?.split("@")[0] || "Account"}
                 </span>
-                <span className="hidden text-[10px] font-medium text-slate-400 sm:inline dark:text-slate-500">
+                <span
+                  className="truncate text-[10px] font-medium text-slate-400 dark:text-slate-500"
+                  title={profile.email ?? undefined}
+                >
                   {profile.email}
                 </span>
               </div>
