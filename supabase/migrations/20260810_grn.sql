@@ -40,8 +40,11 @@ create table if not exists public.grn (
   landed_cost  numeric,
   remarks      text,
 
-  -- Everything as it appeared, so a mis-parse can be diagnosed without the
-  -- original file.
+  -- Unused since 20260813. Holding every cell of every row here kept a second
+  -- copy of the whole spreadsheet in memory and shipped it to the database,
+  -- which exhausted the hosted instance and had the process killed mid-import.
+  -- Left in place because dropping a column is not worth a migration; the
+  -- source file is the diagnosis.
   raw          jsonb,
 
   imported_at  timestamptz not null default now(),

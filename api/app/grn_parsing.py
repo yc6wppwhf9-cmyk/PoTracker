@@ -8,12 +8,18 @@ The register is a flat sheet, one row per receipt line, with these columns:
     Basic Amt., IGST Rate, IGST Amount, CGST Rate, CGST Amount, SGST Rate,
     SGST Amount, Other Charges, Freight, Dispatch, Remarks
 
-Only the identifying columns and QTY are needed; the tax and value columns are
-kept in `raw` for the audit trail rather than modelled.
+Only the identifying columns and QTY are needed; the tax and value columns
+are ignored.
 
 Header aliases are matched loosely, as with the RM sheet parser, because these
 exports vary between runs — trailing dots, case, and the odd renamed column are
 normal and should not require a code change.
+
+Memory matters here. An earlier version kept every cell of every row as a JSON
+blob for diagnosis, which held a second copy of the whole spreadsheet in memory
+and sent it to the database as well — enough to exhaust a small instance and
+have the process killed mid-upload. The source file is the diagnosis; the rows
+carry only what is used.
 """
 
 from __future__ import annotations
@@ -161,13 +167,10 @@ def parse_grn_register(data: bytes) -> dict[str, Any]:
                 continue
 
             record: dict[str, Any] = {}
-            raw: dict[str, Any] = {}
             for i, cell in enumerate(raw_row):
                 field = mapping.get(i)
                 if field:
                     record[field] = cell
-                if cell not in (None, ""):
-                    raw[str(i)] = str(cell)
 
             grc_no = str(record.get("grc_no") or "").strip()
             if not grc_no:
@@ -201,7 +204,6 @@ def parse_grn_register(data: bytes) -> dict[str, Any]:
                     doc_date=_date(record.get("doc_date")),
                     landed_cost=_num(record.get("landed_cost")),
                     remarks=str(record.get("remarks") or "").strip() or None,
-                    raw=raw,
                 )
             )
 

@@ -147,9 +147,19 @@ def test_tolerates_a_title_row_above_the_header():
     assert len(out["rows"]) == 1
 
 
-def test_keeps_the_original_row_for_diagnosis():
+def test_keeps_the_columns_that_are_used():
     data = _book([_row(**{"GRC NO.": "G1", "BARCODE": "INV1", "QTY": 3,
                           "Remarks": "short supply"})])
     r = parse_grn_register(data)["rows"][0]
     assert r["remarks"] == "short supply"
-    assert r["raw"]
+
+
+def test_does_not_keep_a_copy_of_every_cell():
+    """Holding the whole sheet per row exhausted the hosted instance and had
+    the process killed mid-upload, which reached the browser as a network
+    failure. The source file is the diagnosis."""
+    data = _book([_row(**{"GRC NO.": "G1", "BARCODE": "INV1", "QTY": 3,
+                          "IGST Amount": 1234, "Basic Amt.": 5678})])
+    r = parse_grn_register(data)["rows"][0]
+    assert "raw" not in r
+    assert not any(str(v) == "5678" for v in r.values())

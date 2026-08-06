@@ -25,6 +25,13 @@ router = APIRouter(prefix="/grn", tags=["grn"])
 
 ALLOWED_EXT = (".xlsx", ".xlsm", ".xls")
 
+# Reading a spreadsheet costs several times the file size in memory, and the
+# hosted instance is small. Beyond this the process is killed mid-request — the
+# client sees the connection drop with no status, which reads as a network or
+# CORS failure and says nothing about the real cause. Refusing with a message
+# is the better failure.
+MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+
 
 @router.post("/import")
 def import_grn_register(
@@ -47,9 +54,23 @@ def import_grn_register(
     data = file.file.read()
     if not data:
         raise HTTPException(400, "Uploaded file is empty.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413,
+            f"The file is {len(data) / 1_048_576:.1f} MB, over the "
+            f"{MAX_UPLOAD_BYTES // 1_048_576} MB limit this service can parse. "
+            "Export a shorter date range and import it in parts — re-importing "
+            "is safe, and each part only replaces its own GRC numbers.",
+        )
 
     try:
         parsed = parse_grn_register(data)
+    except MemoryError:
+        raise HTTPException(
+            413,
+            "The register was too large to parse. Export a shorter date range "
+            "and import it in parts.",
+        )
     except Exception as e:
         raise HTTPException(400, f"Could not read the register: {e}")
 
@@ -67,6 +88,9 @@ def import_grn_register(
             "reason": "The register contained no receipt lines with a positive quantity.",
             **{k: parsed[k] for k in ("parsed", "skipped_no_grc", "skipped_no_qty")},
         }
+
+    # The workbook bytes are no longer needed and the instance is small.
+    del data
 
     inserted, grc_numbers = _store(user, rows)
     matched = _match_summary(user, rows)
