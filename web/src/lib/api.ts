@@ -23,19 +23,40 @@ export function apiBase(): string {
  * NEXT_PUBLIC_API_BASE_URL being unset in the browser bundle, which leaves it
  * pointing at localhost on the user's own machine.
  */
-function describeNetworkFailure(e: unknown): Error {
+async function describeNetworkFailure(e: unknown): Promise<Error> {
   const base = apiBase();
-  const local = base.includes("localhost") || base.includes("127.0.0.1");
-  if (local)
+  if (base.includes("localhost") || base.includes("127.0.0.1"))
     return new Error(
       `Could not reach the API at ${base}. NEXT_PUBLIC_API_BASE_URL is not set ` +
         "in this deployment, so the browser is calling your own machine. Set it " +
         "to the API URL and redeploy — it is baked in at build time."
     );
+
+  // fetch() gives the same rejection whether the host is unreachable, the
+  // request was blocked before it left the browser, or the upload itself
+  // failed. Probing a known-good endpoint separates those: if this succeeds,
+  // connectivity and CORS are fine and the problem is the request, not the
+  // service — which is otherwise indistinguishable from the outside.
+  let reachable = false;
+  try {
+    const probe = await fetch(`${base}/health`, { method: "GET" });
+    reachable = probe.ok;
+  } catch {
+    reachable = false;
+  }
+
+  if (reachable)
+    return new Error(
+      `The API at ${base} is reachable, so this is not a CORS or server ` +
+        "problem — the upload itself was blocked or interrupted. Check for an " +
+        "ad blocker or privacy extension (try a private window), a network " +
+        "policy blocking uploads, and that the file is not unusually large."
+    );
+
   return new Error(
-    `Could not reach the API at ${base} (${
+    `Could not reach the API at ${base} at all (${
       e instanceof Error ? e.message : "network error"
-    }). Check the service is running and that this site is in ALLOWED_ORIGINS.`
+    }). The service may be asleep or down, or this network may be blocking it.`
   );
 }
 
@@ -63,7 +84,7 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
       headers: { Authorization: `Bearer ${token}` },
     });
   } catch (e) {
-    throw describeNetworkFailure(e);
+    throw await describeNetworkFailure(e);
   }
   if (!res.ok) {
     const text = await res.text();
@@ -108,7 +129,7 @@ export async function postForm<T = unknown>(
       body: form,
     });
   } catch (e) {
-    throw describeNetworkFailure(e);
+    throw await describeNetworkFailure(e);
   }
 
   let body: unknown = null;
