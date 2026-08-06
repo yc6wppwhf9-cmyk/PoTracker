@@ -19,7 +19,6 @@ from app.mailbox import (
     should_process,
     spreadsheet_attachments,
 )
-from app.routers.notify import notify_grn_received
 from app.supabase_client import fetch_all, service_client
 
 router = APIRouter(prefix="/grn", tags=["grn"])
@@ -101,20 +100,11 @@ def import_grn_register(
     inserted, grc_numbers = _store(user, rows)
     matched = _match_summary(user, rows)
     over = _over_receipts(user, rows)
-    completed = _completed_pos(user, rows)
 
-    # Tell the approver goods have arrived. Never fatal: the receipts are
-    # stored, and a mail failure must not lose an import that succeeded.
-    try:
-        notified = notify_grn_received(
-            user.client,
-            receipts=inserted,
-            matched=matched["counts"]["matched_lines"],
-            completed=completed,
-            over=over["examples"],
-        )
-    except Exception as e:
-        notified = {"sent": False, "error": str(e)}
+    # No mail is sent for a receipt. An import matches hundreds of lines at
+    # once, so a notification per import is either noise or a summary nobody
+    # can act on without opening the register — which is where the pending,
+    # complete and excess quantities are shown against the order.
 
     user.client.table("audit_log").insert(
         {
@@ -138,8 +128,6 @@ def import_grn_register(
         "skipped_no_grc": parsed["skipped_no_grc"],
         "skipped_no_qty": parsed["skipped_no_qty"],
         "over_received": over,
-        "completed_pos": len(completed),
-        "notified": notified,
         **matched,
     }
 
@@ -448,64 +436,3 @@ def _over_receipts(user: Any, rows: list[dict[str, Any]]) -> dict[str, Any]:
                 )
 
     return {"lines": count, "examples": examples}
-
-
-def _completed_pos(user: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Purchase orders that this import has completed.
-
-    A PO becoming fully received is the event worth telling someone about: it
-    is the moment an order stops being outstanding. Only the PO numbers present
-    in the file are examined, so an import does not re-announce every order
-    completed months ago.
-    """
-    po_numbers = sorted({r["po_number"] for r in rows if r.get("po_number")})
-    if not po_numbers:
-        return []
-
-    ordered: dict[tuple[str, str], float] = {}
-    for i in range(0, len(po_numbers), 100):
-        chunk = po_numbers[i : i + 100]
-        pos = (
-            user.client.table("po")
-            .select("po_number, po_line(item_code, ordered_qty)")
-            .in_("po_number", chunk)
-            .neq("status", "draft")
-            .execute()
-        ).data or []
-        for p in pos:
-            for line in p.get("po_line") or []:
-                if not line.get("item_code"):
-                    continue
-                key = (str(p["po_number"]).upper(), str(line["item_code"]).upper())
-                ordered[key] = ordered.get(key, 0.0) + float(line.get("ordered_qty") or 0)
-
-    if not ordered:
-        return []
-
-    received: dict[tuple[str, str], float] = {}
-    for i in range(0, len(po_numbers), 100):
-        chunk = po_numbers[i : i + 100]
-        got = fetch_all(
-            lambda c=chunk: user.client.table("grn")
-            .select("po_number, item_code, qty")
-            .in_("po_number", c),
-            order_by="id",
-        )
-        for g in got:
-            if not g.get("item_code"):
-                continue
-            key = (str(g["po_number"]).upper(), str(g["item_code"]).upper())
-            received[key] = received.get(key, 0.0) + float(g.get("qty") or 0)
-
-    # A PO counts as complete when every one of its lines is, within the same
-    # 0.5% tolerance the pending list uses — a rounding difference in the
-    # register is not an outstanding delivery.
-    lines_by_po: dict[str, list[tuple[float, float]]] = {}
-    for (po, _code), want in ordered.items():
-        lines_by_po.setdefault(po, []).append((want, received.get((po, _code), 0.0)))
-
-    out: list[dict[str, Any]] = []
-    for po, lines in lines_by_po.items():
-        if all(got >= want * 0.995 for want, got in lines if want > 0):
-            out.append({"po_number": po, "lines": len(lines)})
-    return out
