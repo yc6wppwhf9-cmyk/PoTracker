@@ -1,8 +1,14 @@
-from fastapi import FastAPI
+import logging
+import traceback
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.routers import ai, exports, grn, item_master, notify, pos, rm_sheets
+
+log = logging.getLogger("uvicorn.error")
 
 settings = get_settings()
 
@@ -12,6 +18,38 @@ app = FastAPI(
     description="Heavy backend: file parsing, quantity comparison, and Claude calls.",
 )
 
+
+# ORDER MATTERS. Starlette applies middleware outermost-last-added, and its own
+# error handler sits outside everything — so an unhandled exception returns a
+# 500 that never passes back through CORSMiddleware. The browser then sees a
+# response with no Access-Control-Allow-Origin and reports a CORS failure,
+# hiding the actual error completely. Catching exceptions here, INSIDE the CORS
+# layer added below, means a genuine 500 still carries CORS headers and the
+# real message reaches the developer console.
+@app.middleware("http")
+async def surface_errors_with_cors(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        log.error("Unhandled error on %s %s", request.method, request.url.path)
+        log.error(traceback.format_exc())
+        detail = str(e) or e.__class__.__name__
+        # A missing table is nearly always an unapplied migration, and saying so
+        # saves reading a Postgres error to work out which one.
+        hint = None
+        if "does not exist" in detail and "relation" in detail:
+            hint = (
+                "A table this endpoint needs is missing — apply the outstanding "
+                "migrations in supabase/migrations, then retry."
+            )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": detail[:500], "hint": hint},
+        )
+
+
+# Added last, so it wraps the handler above and every response — including the
+# error responses it produces.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,

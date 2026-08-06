@@ -1,0 +1,66 @@
+"""An unhandled error must still reach the browser as an error.
+
+Starlette's own 500 handler sits outside the middleware stack, so an exception
+escaping a route produced a response with no Access-Control-Allow-Origin. The
+browser then reported a CORS failure and discarded the body — turning every
+server error into the same misleading message, with the real cause visible only
+in the server log.
+
+That is how "relation public.grn does not exist" reached a user as
+"blocked by CORS policy".
+"""
+
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+ORIGIN = "https://po-tracker-lake.vercel.app"
+
+
+@app.get("/__test_boom")
+def _boom():
+    raise RuntimeError('relation "public.grn" does not exist')
+
+
+@app.get("/__test_fine")
+def _fine():
+    return {"ok": True}
+
+
+client = TestClient(app, raise_server_exceptions=False)
+
+
+def test_error_response_carries_cors_headers():
+    r = client.get("/__test_boom", headers={"Origin": ORIGIN})
+    assert r.status_code == 500
+    assert r.headers.get("access-control-allow-origin") == ORIGIN
+
+
+def test_error_response_carries_the_real_message():
+    r = client.get("/__test_boom", headers={"Origin": ORIGIN})
+    assert "does not exist" in r.json()["detail"]
+
+
+def test_missing_table_is_explained_as_a_migration():
+    """The commonest cause, and the one a Postgres message does not name."""
+    r = client.get("/__test_boom", headers={"Origin": ORIGIN})
+    assert "migrations" in (r.json()["hint"] or "")
+
+
+def test_successful_responses_still_carry_cors_headers():
+    r = client.get("/__test_fine", headers={"Origin": ORIGIN})
+    assert r.status_code == 200
+    assert r.headers.get("access-control-allow-origin") == ORIGIN
+
+
+def test_preflight_is_answered():
+    r = client.options(
+        "/grn/import",
+        headers={
+            "Origin": ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers.get("access-control-allow-origin") == ORIGIN
