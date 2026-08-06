@@ -40,7 +40,7 @@ export function ImportForm() {
       >
         <label className="block">
           <span className="mb-1 block text-sm font-medium">
-            Catalogue file (.xlsx)
+            Item master file (.xlsx)
           </span>
           <input
             type="file"
@@ -65,7 +65,7 @@ export function ImportForm() {
           disabled={!file || busy}
           className="mt-5 w-full rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
         >
-          {busy ? "Importing…" : "Import catalogue"}
+          {busy ? "Importing…" : "Import item master"}
         </button>
       </form>
 

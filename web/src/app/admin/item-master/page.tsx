@@ -19,7 +19,7 @@ export default async function ItemMasterPage() {
 
   return (
     <AppShell profile={profile}>
-      <h1 className="text-2xl font-semibold tracking-tight">Item catalogue</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Item master</h1>
       <p className="mt-1 text-neutral-500">
         {count ?? 0} items on file. Import an .xlsx to add or update items — this
         is the join key for all reconciliation.

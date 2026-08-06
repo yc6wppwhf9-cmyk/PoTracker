@@ -143,7 +143,7 @@ async function dataFor(
       return {
         tiles: [
           { label: "System users", value: users.count ?? 0 },
-          { label: "Catalogue items", value: items.count ?? 0 },
+          { label: "Item master", value: items.count ?? 0 },
           { label: "RM sheets", value: sheets.count ?? 0 },
         ],
         actions: [
@@ -154,8 +154,8 @@ async function dataFor(
           },
           {
             href: "/admin/item-master",
-            label: "Item catalogue",
-            desc: "Import or review master SKU catalogue.",
+            label: "Item master",
+            desc: "Import or review the master SKU list.",
           },
         ],
       };

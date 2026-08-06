@@ -154,8 +154,8 @@ export function UploadForm() {
               {!!result.unresolved && result.unresolved > 0 && (
                 <p className="mt-3 text-xs text-red-700 dark:text-red-400">
                   {result.unresolved} line(s) have an item code that could not
-                  be added to the catalogue — they will not reconcile. Ask an
-                  admin to check the item catalogue.
+                  be added to the item master — they will not reconcile. Ask an
+                  admin to check the item master.
                 </p>
               )}
 

@@ -164,7 +164,7 @@ const NAV: NavItem[] = [
   { href: "/procurement/pending-pos", label: "Pending POs", roles: ["approver", "purchase_head", "md"], ready: true, icon: IconPendingPos },
   { href: "/procurement/receipts", label: "GRN Register", roles: ["approver", "purchase_head", "md", "po_team"], ready: true, icon: IconReceipts },
   { href: "/procurement/md", label: "MD Dashboard", roles: ["md"], ready: true, icon: IconMd },
-  { href: "/admin/item-master", label: "Item Catalogue", roles: ["admin"], ready: true, icon: IconItemMaster },
+  { href: "/admin/item-master", label: "Item Master", roles: ["admin"], ready: true, icon: IconItemMaster },
   { href: "/admin/users", label: "Users", roles: ["admin"], ready: true, icon: IconUsers },
 ];
 

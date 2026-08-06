@@ -19,7 +19,7 @@ export default async function UploadPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Upload RM sheet</h1>
       <p className="mt-1 text-neutral-500">
         Drop the final raw-material requirement sheet (.xlsx). It’s parsed,
-        matched to the item catalogue, and the Purchase Head is notified.
+        matched to the item master, and the Purchase Head is notified.
       </p>
 
       <div className="mt-6">
