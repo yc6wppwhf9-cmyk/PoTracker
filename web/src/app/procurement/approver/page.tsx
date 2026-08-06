@@ -6,8 +6,8 @@ import { fetchAll } from "@/lib/supabase/fetch-all";
 import { getPendingPos } from "@/lib/pending-pos";
 import { PendingPos } from "./pending-pos";
 import { getOverReceipts } from "@/lib/over-receipts";
-import { OverReceipts } from "./over-receipts";
 import { ApproverTabs } from "./tabs";
+import { DownloadButton } from "./download-button";
 
 /** A sheet still needing the approver's decision, as opposed to one already
  *  sent to the MD or decided. */
@@ -146,38 +146,77 @@ export default async function ApproverList() {
         imported GRN register. Overdue first; part-received orders are shown
         whether or not their date has passed.
       </p>
-      <PendingPos pos={pending} />
+      <PendingPos lines={pending} />
     </>
   );
 
+  // Ordered and received per (PO number, item), so each receipt row carries the
+  // comparison instead of making the reader find it in a second table.
+  const key = (po: string | null, code: string | null) =>
+    `${(po ?? "").toUpperCase()}__${(code ?? "").toUpperCase()}`;
+
+  const orderedBy = new Map<string, number>();
+  const receivedBy = new Map<string, number>();
+  const receiptPoNumbers = [
+    ...new Set(receipts.map((r) => r.po_number).filter(Boolean)),
+  ] as string[];
+
+  if (receiptPoNumbers.length > 0) {
+    const { data: matched } = await supabase
+      .from("po")
+      .select("po_number, po_line(item_code, ordered_qty)")
+      .in("po_number", receiptPoNumbers)
+      .neq("status", "draft");
+    for (const p of matched ?? [])
+      for (const l of (p.po_line as unknown as {
+        item_code: string | null;
+        ordered_qty: number;
+      }[]) ?? []) {
+        const k = key(p.po_number, l.item_code);
+        orderedBy.set(k, (orderedBy.get(k) ?? 0) + (Number(l.ordered_qty) || 0));
+      }
+    for (const r of receipts) {
+      const k = key(r.po_number, r.item_code);
+      receivedBy.set(k, (receivedBy.get(k) ?? 0) + (Number(r.qty) || 0));
+    }
+  }
+
+  const overValue = overReceipts.reduce((t, l) => t + (l.excessValue ?? 0), 0);
+  const genuineSurplus = overReceipts.filter((l) => (l.vsRequired ?? 0) > 0).length;
+
   const grnPanel = (
     <>
-      <div className="mb-6">
-        <h3 className="text-base font-semibold tracking-tight">
-          Over-received
-          {overReceipts.length > 0 && (
-            <span className="ml-2 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950 dark:text-rose-300">
-              {overReceipts.length}
-            </span>
-          )}
-        </h3>
-        <p className="mb-3 mt-1 text-sm text-neutral-500">
-          More material arrived than the purchase order asked for. The order may
-          have been correct — this is what the supplier actually delivered.
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-3xl text-sm text-neutral-500">
+          What the GRN register recorded as arriving, with what each line was
+          ordered against. Read-only here — importing is the PO team&apos;s.
         </p>
-        <OverReceipts lines={overReceipts} />
+        <DownloadButton
+          path="/exports/grn-register.xlsx"
+          filename="grn-register.xlsx"
+          label="Download register"
+        />
       </div>
 
-      <h3 className="text-base font-semibold tracking-tight">
-        Receipts
-        <span className="ml-2 text-sm font-normal text-neutral-500">
-          {receipts.length >= 200 ? "latest 200" : `${receipts.length} line(s)`}
-        </span>
-      </h3>
-      <p className="mb-3 mt-1 text-sm text-neutral-500">
-        What the GRN register recorded as arriving. Read-only here — importing is
-        the PO team&apos;s.
-      </p>
+      {/* The headline first: an excess is money, and it is the reason to read
+          the table rather than something to be found inside it. */}
+      {overReceipts.length > 0 && (
+        <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          <strong>{overReceipts.length} line(s)</strong> received more than the
+          purchase order asked for
+          {overValue > 0 && (
+            <>
+              , excess worth{" "}
+              <strong className="tabular-nums">
+                {overValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </strong>
+            </>
+          )}
+          . {genuineSurplus} of them leave more than the sheet required; the rest
+          fill a shortfall.
+        </p>
+      )}
+
       <div className="overflow-x-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
         <table className="w-full text-sm">
           <thead className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-white/10">
@@ -187,36 +226,73 @@ export default async function ApproverList() {
               <th className="px-4 py-3 font-medium">PO number</th>
               <th className="px-4 py-3 font-medium">Item</th>
               <th className="px-4 py-3 font-medium">Lot</th>
-              <th className="px-4 py-3 text-right font-medium">Qty</th>
+              <th className="px-4 py-3 text-right font-medium">This receipt</th>
+              <th className="px-4 py-3 text-right font-medium">Ordered</th>
+              <th className="px-4 py-3 text-right font-medium">Received</th>
+              <th className="px-4 py-3 text-right font-medium">Excess</th>
               <th className="px-4 py-3 font-medium">Supplier</th>
             </tr>
           </thead>
           <tbody>
-            {receipts.map((r, i) => (
-              <tr
-                key={`${r.grc_no}-${r.item_code ?? ""}-${i}`}
-                className="border-b border-black/5 last:border-0 dark:border-white/5"
-              >
-                <td className="px-4 py-3 font-mono text-xs">{r.grc_no}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-neutral-500">
-                  {r.grc_date ?? "—"}
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">
-                  {r.po_number ?? <span className="font-sans text-neutral-400">—</span>}
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">{r.item_code ?? "—"}</td>
-                <td className="px-4 py-3 text-neutral-500">{r.lot ?? "—"}</td>
-                <td className="px-4 py-3 text-right tabular-nums">
-                  {Number(r.qty).toLocaleString()}
-                </td>
-                <td className="px-4 py-3 text-neutral-600 dark:text-neutral-300">
-                  {r.supplier ?? "—"}
-                </td>
-              </tr>
-            ))}
+            {receipts.map((r, i) => {
+              const k = key(r.po_number, r.item_code);
+              const ordered = orderedBy.get(k) ?? null;
+              const received = receivedBy.get(k) ?? (Number(r.qty) || 0);
+              // 2% throughout: deliveries are rarely exact, and flagging every
+              // rounding difference trains people to ignore the column.
+              const excess =
+                ordered != null && ordered > 0 && received > ordered * 1.02
+                  ? received - ordered
+                  : null;
+              return (
+                <tr
+                  key={`${r.grc_no}-${r.item_code ?? ""}-${i}`}
+                  className={`border-b border-black/5 last:border-0 dark:border-white/5 ${
+                    excess != null ? "bg-rose-50/60 dark:bg-rose-950/20" : ""
+                  }`}
+                >
+                  <td className="px-4 py-3 font-mono text-xs">{r.grc_no}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-neutral-500">
+                    {r.grc_date ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {r.po_number ?? <span className="font-sans text-neutral-400">—</span>}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">{r.item_code ?? "—"}</td>
+                  <td className="px-4 py-3 text-neutral-500">{r.lot ?? "—"}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {Number(r.qty).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-neutral-500">
+                    {ordered == null ? (
+                      <span title="No purchase order in this system carries that PO number and item. Usually the PO was raised elsewhere, or its number was never captured from the attached document.">
+                        no match
+                      </span>
+                    ) : (
+                      ordered.toLocaleString()
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {received.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {excess == null ? (
+                      <span className="text-neutral-300">—</span>
+                    ) : (
+                      <span className="font-semibold text-rose-700 dark:text-rose-400">
+                        +{excess.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-600 dark:text-neutral-300">
+                    {r.supplier ?? "—"}
+                  </td>
+                </tr>
+              );
+            })}
             {receipts.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-neutral-500">
+                <td colSpan={10} className="px-4 py-8 text-center text-neutral-500">
                   No receipts imported yet.
                 </td>
               </tr>

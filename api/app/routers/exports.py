@@ -232,3 +232,250 @@ def export_reconciliation(
             )
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Registers
+#
+# Both are flat single-sheet workbooks rather than the tabbed KPI report: these
+# get filtered and pivoted by whoever receives them, and a tabbed workbook
+# fights that.
+# ---------------------------------------------------------------------------
+
+# Matches the screens. Deliveries are rarely exact — cloth is cut to roll
+# length, hardware ships in carton multiples — so only an excess beyond this
+# counts as over-received.
+OVER_TOLERANCE = 0.02
+SHORT_TOLERANCE = 0.005
+
+
+def _ordered_and_received(user: CurrentUser) -> tuple[dict, dict, dict]:
+    """Ordered per (PO number, item), received likewise, and PO detail by number.
+
+    Keyed without the lot: the register and the RM sheet name lots from
+    different systems, so including it meant a receipt never matched its order.
+    """
+    pos = fetch_all(
+        lambda: user.client.table("po")
+        .select("id, po_number, etd, site, status, rm_sheet_id, "
+                "po_line(item_code, lot, ordered_qty, rate, supplier)")
+        .neq("status", "draft"),
+        order_by="id",
+    )
+
+    ordered: dict[tuple[str, str], float] = {}
+    po_by_number: dict[str, dict] = {}
+    for p in pos:
+        num = (p.get("po_number") or "").upper()
+        if num:
+            po_by_number[num] = p
+        for line in p.get("po_line") or []:
+            code = (line.get("item_code") or "").upper()
+            if not num or not code:
+                continue
+            key = (num, code)
+            ordered[key] = ordered.get(key, 0.0) + _num(line.get("ordered_qty"))
+
+    received: dict[tuple[str, str], float] = {}
+    grn = fetch_all(
+        lambda: user.client.table("grn").select("po_number, item_code, qty"),
+        order_by="id",
+    )
+    for g in grn:
+        num = (g.get("po_number") or "").upper()
+        code = (g.get("item_code") or "").upper()
+        if not num or not code:
+            continue
+        key = (num, code)
+        received[key] = received.get(key, 0.0) + _num(g.get("qty"))
+
+    return ordered, received, po_by_number
+
+
+@router.get("/grn-register.xlsx")
+def export_grn_register(user: CurrentUser = Depends(get_current_user)):
+    """Every receipt, with what it was ordered against.
+
+    A receipt on its own is not reviewable — 3,085 arrived is only meaningful
+    beside the order — so the comparison travels with the row rather than being
+    something the recipient has to reconstruct with a lookup.
+    """
+    require_roles(user, "approver", "md", "purchase_head", "po_team")
+
+    rows = fetch_all(
+        lambda: user.client.table("grn").select(
+            "grc_no, grc_date, po_number, po_date, item_code, item_name, lot, "
+            "qty, supplier, stock_point, department, doc_no, doc_date, "
+            "landed_cost, remarks"
+        ),
+        order_by="grc_no",
+    )
+    if not rows:
+        raise HTTPException(422, "Nothing to export — no receipts have been imported.")
+
+    ordered, received, _ = _ordered_and_received(user)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "GRN register"
+
+    headers = [
+        "GRC no", "GRC date", "PO number", "PO date", "Item code", "Item name",
+        "Lot", "This receipt", "Ordered", "Received (all receipts)", "Excess",
+        "Supplier", "Stock point", "Department", "Doc no", "Doc date",
+        "Landed cost", "Remarks",
+    ]
+    _write_header(ws, headers)
+
+    for i, r in enumerate(rows, start=2):
+        num = (r.get("po_number") or "").upper()
+        code = (r.get("item_code") or "").upper()
+        key = (num, code)
+        ordr = ordered.get(key)
+        recd = received.get(key, _num(r.get("qty")))
+        excess = (
+            recd - ordr if ordr and ordr > 0 and recd > ordr * (1 + OVER_TOLERANCE) else None
+        )
+
+        values = [
+            r.get("grc_no"), r.get("grc_date"), r.get("po_number"), r.get("po_date"),
+            r.get("item_code"), r.get("item_name"), r.get("lot"),
+            _num(r.get("qty")),
+            # Blank rather than zero when nothing matched: a zero would read as
+            # "ordered none", which is a different and wrong statement.
+            ordr if ordr is not None else "no match",
+            recd, excess, r.get("supplier"), r.get("stock_point"),
+            r.get("department"), r.get("doc_no"), r.get("doc_date"),
+            r.get("landed_cost"), r.get("remarks"),
+        ]
+        for c, v in enumerate(values, start=1):
+            cell = ws.cell(row=i, column=c, value=v)
+            if c in (8, 10, 11) or (c == 9 and isinstance(v, (int, float))):
+                cell.number_format = "#,##0.00"
+
+    _autosize(ws, {1: 24, 3: 24, 5: 14, 6: 34, 7: 18, 12: 30, 13: 34})
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    today = datetime.date.today().isoformat()
+    filename = f"grn-register-{today}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type=XLSX_MEDIA,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
+
+
+@router.get("/pending-pos.xlsx")
+def export_pending_pos(user: CurrentUser = Depends(get_current_user)):
+    """Purchase orders with material still outstanding, line by line.
+
+    One row per PO line rather than per PO: chasing a supplier is about a
+    specific material, and a PO-level total does not say which item is short.
+    """
+    require_roles(user, "approver", "md", "purchase_head", "po_team")
+
+    ordered, received, po_by_number = _ordered_and_received(user)
+
+    sheets = {
+        s["id"]: s.get("style_ref")
+        for s in fetch_all(
+            lambda: user.client.table("rm_sheet").select("id, style_ref"),
+            order_by="id",
+        )
+    }
+
+    today = datetime.date.today()
+    out: list[list[Any]] = []
+
+    for num, p in po_by_number.items():
+        etd_raw = p.get("etd")
+        etd = None
+        days_late = None
+        if etd_raw:
+            try:
+                etd = datetime.date.fromisoformat(str(etd_raw))
+                days_late = max(0, (today - etd).days)
+            except ValueError:
+                etd = None
+
+        for line in p.get("po_line") or []:
+            code = (line.get("item_code") or "").upper()
+            if not code:
+                continue
+            ordr = _num(line.get("ordered_qty"))
+            if ordr <= 0:
+                continue
+            recd = received.get((num, code), 0.0)
+            # Complete within tolerance is not outstanding, whatever the
+            # rounding in the register says.
+            if recd >= ordr * (1 - SHORT_TOLERANCE):
+                continue
+
+            out.append([
+                num,
+                line.get("supplier"),
+                p.get("site"),
+                etd,
+                days_late if (days_late or 0) > 0 else None,
+                "overdue" if (days_late or 0) > 0 else ("not due yet" if etd else "no date"),
+                sheets.get(p.get("rm_sheet_id")),
+                line.get("item_code"),
+                line.get("lot"),
+                ordr,
+                recd,
+                ordr - recd,
+                "nothing received" if recd == 0 else "part received",
+            ])
+
+    if not out:
+        raise HTTPException(
+            422, "Nothing to export — every purchase order has been fully received."
+        )
+
+    # Most overdue first, then the nearest date: the order they need chasing in.
+    out.sort(key=lambda r: (-(r[4] or 0), str(r[3] or "9999-12-31")))
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Pending POs"
+    _write_header(ws, [
+        "PO number", "Supplier", "Delivery site", "ETD", "Days late", "Status",
+        "Sheet", "Item code", "Lot", "Ordered", "Received", "Outstanding",
+        "Group",
+    ])
+
+    for i, row in enumerate(out, start=2):
+        for c, v in enumerate(row, start=1):
+            cell = ws.cell(row=i, column=c, value=v)
+            if c in (10, 11, 12):
+                cell.number_format = "#,##0.00"
+            if c == 4 and v is not None:
+                cell.number_format = "yyyy-mm-dd"
+
+    _autosize(ws, {1: 26, 2: 30, 3: 34, 6: 14, 7: 16, 8: 14, 9: 20, 13: 18})
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"pending-pos-{today.isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type=XLSX_MEDIA,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
