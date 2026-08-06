@@ -88,13 +88,6 @@ function IconPoTeam({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-function IconGrn({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-    </svg>
-  );
-}
 
 function IconApprover({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -166,11 +159,10 @@ const NAV: NavItem[] = [
   { href: "/procurement/assign", label: "Assign Buyers", roles: ["purchase_head"], ready: true, icon: IconAssign },
   { href: "/procurement/buyer", label: "Buyer Workspace", roles: ["buyer"], ready: true, icon: IconBuyer },
   { href: "/procurement/po-team", label: "PO Team", roles: ["po_team"], ready: true, icon: IconPoTeam },
-  { href: "/procurement/grn", label: "GRN Import", roles: ["po_team", "purchase_head"], ready: true, icon: IconGrn },
   { href: "/procurement/approver", label: "MR Sheets to Approve", roles: ["approver"], ready: true, icon: IconApprover },
   { href: "/procurement/po-approvals", label: "PO Approvals", roles: ["approver"], ready: true, icon: IconPoApprovals },
   { href: "/procurement/pending-pos", label: "Pending POs", roles: ["approver", "purchase_head", "md"], ready: true, icon: IconPendingPos },
-  { href: "/procurement/receipts", label: "GRN Register", roles: ["approver", "purchase_head", "md"], ready: true, icon: IconReceipts },
+  { href: "/procurement/receipts", label: "GRN Register", roles: ["approver", "purchase_head", "md", "po_team"], ready: true, icon: IconReceipts },
   { href: "/procurement/md", label: "MD Dashboard", roles: ["md"], ready: true, icon: IconMd },
   { href: "/admin/item-master", label: "Item Catalogue", roles: ["admin"], ready: true, icon: IconItemMaster },
   { href: "/admin/users", label: "Users", roles: ["admin"], ready: true, icon: IconUsers },
