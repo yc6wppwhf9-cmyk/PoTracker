@@ -13,8 +13,12 @@ import type { PendingPo } from "@/lib/pending-pos";
  * merely open.
  */
 export function PendingPos({ pos }: { pos: PendingPo[] }) {
+  const overdueCount = pos.filter((p) => p.overdue).length;
+  const partCount = pos.filter((p) => !p.nothingReceived).length;
+  // Open on a tab that has something in it. Defaulting to Overdue showed an
+  // empty table under a heading saying two POs were open, which reads as a bug.
   const [filter, setFilter] = useState<"all" | "overdue" | "none" | "part">(
-    "overdue"
+    overdueCount > 0 ? "overdue" : partCount > 0 ? "part" : "all"
   );
   const [open, setOpen] = useState<string | null>(null);
 
@@ -78,6 +82,13 @@ export function PendingPos({ pos }: { pos: PendingPo[] }) {
             </tr>
           </thead>
           <tbody>
+            {shown.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-neutral-500">
+                  Nothing in this group.
+                </td>
+              </tr>
+            )}
             {shown.map((p) => {
               const outstanding = p.ordered - p.received;
               const pct = p.ordered > 0 ? p.received / p.ordered : 0;
