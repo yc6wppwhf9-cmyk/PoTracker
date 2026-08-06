@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SessionProfile } from "@/lib/auth";
 import type { AppRole } from "@/lib/database.types";
-import { ROLE_LABELS } from "@/lib/roles";
 import { signOut } from "@/app/login/actions";
 
 type NavItem = {
@@ -28,24 +27,6 @@ function getInitials(email: string | null, fullName?: string | null): string {
   return (email ?? "?").slice(0, 2).toUpperCase();
 }
 
-function getRoleBadgeStyle(role: AppRole) {
-  switch (role) {
-    case "admin":
-      return "border-purple-300/70 bg-purple-50/80 text-purple-700 dark:border-purple-800/80 dark:bg-purple-950/60 dark:text-purple-300 shadow-xs shadow-purple-500/10";
-    case "md":
-      return "border-emerald-300/70 bg-emerald-50/80 text-emerald-700 dark:border-emerald-800/80 dark:bg-emerald-950/60 dark:text-emerald-300 shadow-xs shadow-emerald-500/10";
-    case "approver":
-      return "border-blue-300/70 bg-blue-50/80 text-blue-700 dark:border-blue-800/80 dark:bg-blue-950/60 dark:text-blue-300 shadow-xs shadow-blue-500/10";
-    case "purchase_head":
-      return "border-indigo-300/70 bg-indigo-50/80 text-indigo-700 dark:border-indigo-800/80 dark:bg-indigo-950/60 dark:text-indigo-300 shadow-xs shadow-indigo-500/10";
-    case "buyer":
-      return "border-amber-300/70 bg-amber-50/80 text-amber-700 dark:border-amber-800/80 dark:bg-amber-950/60 dark:text-amber-300 shadow-xs shadow-amber-500/10";
-    case "po_team":
-      return "border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-800/80 dark:bg-sky-950/60 dark:text-sky-300 shadow-xs shadow-sky-500/10";
-    default:
-      return "border-slate-300/70 bg-slate-100/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
-  }
-}
 
 // Clean inline SVG Icons for navigation items
 function IconDashboard({ className = "h-4 w-4" }: { className?: string }) {
@@ -265,12 +246,6 @@ export function AppShell({
                   {profile.email}
                 </span>
               </div>
-            </div>
-
-            {/* Custom Role Badge with Glowing Dot */}
-            <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${getRoleBadgeStyle(profile.role)}`}>
-              <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-              {ROLE_LABELS[profile.role]}
             </div>
 
             {/* Sign Out Button */}
