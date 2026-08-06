@@ -28,8 +28,11 @@ export default async function GrnPage() {
     ...new Set(recentRows.map((r) => r.po_number).filter(Boolean)),
   ] as string[];
 
-  const key = (po: string | null, code: string | null, lot: string | null) =>
-    `${(po ?? "").toUpperCase()}__${(code ?? "").toUpperCase()}__${lot ?? ""}`;
+  // Lot is deliberately not part of the key: the register and the RM sheet
+  // name lots from different systems, so requiring them to agree meant a
+  // receipt never matched its order. See lib/pending-pos.ts.
+  const key = (po: string | null, code: string | null) =>
+    `${(po ?? "").toUpperCase()}__${(code ?? "").toUpperCase()}`;
 
   const orderedBy = new Map<string, number>();
   const receivedBy = new Map<string, number>();
@@ -46,7 +49,7 @@ export default async function GrnPage() {
         lot: string | null;
         ordered_qty: number;
       }[]) ?? []) {
-        const k = key(p.po_number, l.item_code, l.lot);
+        const k = key(p.po_number, l.item_code);
         orderedBy.set(k, (orderedBy.get(k) ?? 0) + (Number(l.ordered_qty) || 0));
       }
 
@@ -66,7 +69,7 @@ export default async function GrnPage() {
         .range(from, to)
     );
     for (const g of all) {
-      const k = key(g.po_number, g.item_code, g.lot);
+      const k = key(g.po_number, g.item_code);
       receivedBy.set(k, (receivedBy.get(k) ?? 0) + (Number(g.qty) || 0));
     }
   }
@@ -76,8 +79,8 @@ export default async function GrnPage() {
       <h1 className="text-2xl font-semibold tracking-tight">GRN register</h1>
       <p className="mt-1 max-w-3xl text-neutral-500">
         Import the GRC export to record what has actually arrived. Receipts are
-        matched to purchase orders by PO number, barcode and lot, and drive the
-        approver&apos;s pending-PO list.
+        matched to purchase orders by PO number and barcode, and drive the
+        approver&apos;s open-PO and over-received lists.
       </p>
 
       <div className="mt-6 rounded-2xl border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-neutral-900">
@@ -118,7 +121,7 @@ export default async function GrnPage() {
           </thead>
           <tbody>
             {recentRows.map((r, i) => {
-              const k = key(r.po_number, r.item_code, r.lot);
+              const k = key(r.po_number, r.item_code);
               const ordered = orderedBy.get(k) ?? null;
               const received = receivedBy.get(k) ?? (Number(r.qty) || 0);
               // 2% matches the approver's view: deliveries are rarely exact and
@@ -148,7 +151,7 @@ export default async function GrnPage() {
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-neutral-500">
                   {ordered == null ? (
-                    <span title="No purchase order in this system carries that PO number, barcode and lot.">
+                    <span title="No purchase order in this system carries that PO number and barcode. Usually the PO was raised elsewhere, or its number was never captured from the attached document.">
                       no match
                     </span>
                   ) : (

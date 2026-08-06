@@ -377,10 +377,12 @@ def _over_receipts(user: Any, rows: list[dict[str, Any]]) -> dict[str, Any]:
             for line in p.get("po_line") or []:
                 if not line.get("item_code"):
                     continue
+                # Keyed on PO number and item only: the register names lots
+                # differently from the RM sheet, so including the lot meant a
+                # receipt never matched its order.
                 key = (
                     str(p["po_number"]).upper(),
                     str(line["item_code"]).upper(),
-                    line.get("lot") or "",
                 )
                 ordered[key] = ordered.get(key, 0.0) + float(line.get("ordered_qty") or 0)
 
@@ -404,7 +406,6 @@ def _over_receipts(user: Any, rows: list[dict[str, Any]]) -> dict[str, Any]:
             key = (
                 str(g["po_number"]).upper(),
                 str(g["item_code"]).upper(),
-                g.get("lot") or "",
             )
             received[key] = received.get(key, 0.0) + float(g.get("qty") or 0)
 
@@ -423,7 +424,6 @@ def _over_receipts(user: Any, rows: list[dict[str, Any]]) -> dict[str, Any]:
                     {
                         "po_number": key[0],
                         "item_code": key[1],
-                        "lot": key[2] or None,
                         "ordered": want,
                         "received": qty,
                         "excess": round(qty - want, 3),

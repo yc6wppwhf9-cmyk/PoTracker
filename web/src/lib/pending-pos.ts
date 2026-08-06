@@ -37,8 +37,19 @@ export type PendingPo = {
   lines: PendingLine[];
 };
 
-const keyOf = (code: string | null, lot: string | null) =>
-  `${(code ?? "").toUpperCase()}__${lot ?? ""}`;
+/**
+ * A receipt is tied to a PO line by PO number and item, not by lot.
+ *
+ * The two sides name lots from different systems — the RM sheet says "Lot 3",
+ * the GRN register says "GT STOCK" or "July LOT/00000023/26-27" — so requiring
+ * them to agree meant a receipt never matched its order, and the failure looked
+ * like a wrong PO number rather than a vocabulary difference.
+ *
+ * A PO number already identifies one supplier's order and the barcode
+ * identifies the material within it, so the pair is specific enough. Quantities
+ * are summed across lots on both sides, which is the same total either way.
+ */
+const keyOf = (code: string | null) => (code ?? "").toUpperCase();
 
 /** Received quantity is measured against ordered with a small tolerance, so a
  *  rounding difference in the register is not reported as a short delivery. */
@@ -89,7 +100,7 @@ export async function getPendingPos(): Promise<PendingPo[]> {
   // Sum per PO and line: several receipts against one line are one arrival.
   const receivedByPoLine = new Map<string, number>();
   for (const g of grn) {
-    const k = `${g.po_number}::${keyOf(g.item_code, g.lot)}`;
+    const k = `${g.po_number}::${keyOf(g.item_code)}`;
     receivedByPoLine.set(k, (receivedByPoLine.get(k) ?? 0) + (Number(g.qty) || 0));
   }
 
@@ -110,7 +121,7 @@ export async function getPendingPos(): Promise<PendingPo[]> {
       lot: l.lot,
       ordered: Number(l.ordered_qty) || 0,
       received: p.po_number
-        ? receivedByPoLine.get(`${p.po_number}::${keyOf(l.item_code, l.lot)}`) ?? 0
+        ? receivedByPoLine.get(`${p.po_number}::${keyOf(l.item_code)}`) ?? 0
         : 0,
     }));
 

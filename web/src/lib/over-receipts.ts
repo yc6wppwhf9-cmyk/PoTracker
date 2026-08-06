@@ -42,8 +42,19 @@ export type OverReceiptLine = {
   receipts: { grcNo: string; grcDate: string | null; qty: number }[];
 };
 
-const keyOf = (code: string | null, lot: string | null) =>
-  `${(code ?? "").toUpperCase()}__${lot ?? ""}`;
+/**
+ * A receipt is tied to a PO line by PO number and item, not by lot.
+ *
+ * The two sides name lots from different systems — the RM sheet says "Lot 3",
+ * the GRN register says "GT STOCK" or "July LOT/00000023/26-27" — so requiring
+ * them to agree meant a receipt never matched its order, and the failure looked
+ * like a wrong PO number rather than a vocabulary difference.
+ *
+ * A PO number already identifies one supplier's order and the barcode
+ * identifies the material within it, so the pair is specific enough. Quantities
+ * are summed across lots on both sides, which is the same total either way.
+ */
+const keyOf = (code: string | null) => (code ?? "").toUpperCase();
 
 /**
  * Deliveries are rarely exact — cloth is cut to roll length, hardware ships in
@@ -94,7 +105,7 @@ export async function getOverReceipts(): Promise<OverReceiptLine[]> {
     { qty: number; receipts: { grcNo: string; grcDate: string | null; qty: number }[] }
   >();
   for (const g of grn) {
-    const k = `${g.po_number}::${keyOf(g.item_code, g.lot)}`;
+    const k = `${g.po_number}::${keyOf(g.item_code)}`;
     const entry = byPoLine.get(k) ?? { qty: 0, receipts: [] };
     entry.qty += Number(g.qty) || 0;
     entry.receipts.push({
@@ -125,7 +136,7 @@ export async function getOverReceipts(): Promise<OverReceiptLine[]> {
     : [];
   const requiredBy = new Map<string, number>();
   for (const r of reqs) {
-    const k = `${r.rm_sheet_id}::${keyOf(r.item_code, r.lot)}`;
+    const k = `${r.rm_sheet_id}::${keyOf(r.item_code)}`;
     requiredBy.set(k, (requiredBy.get(k) ?? 0) + (Number(r.required_qty) || 0));
   }
 
@@ -147,7 +158,7 @@ export async function getOverReceipts(): Promise<OverReceiptLine[]> {
 
     for (const l of lines) {
       if (!l.item_code) continue;
-      const k = `${p.po_number}::${keyOf(l.item_code, l.lot)}`;
+      const k = `${p.po_number}::${keyOf(l.item_code)}`;
       const got = byPoLine.get(k);
       if (!got) continue;
 
@@ -159,7 +170,7 @@ export async function getOverReceipts(): Promise<OverReceiptLine[]> {
       const excess = received - ordered;
       const rate = l.rate == null ? null : Number(l.rate);
       const required =
-        requiredBy.get(`${p.rm_sheet_id}::${keyOf(l.item_code, l.lot)}`) ?? null;
+        requiredBy.get(`${p.rm_sheet_id}::${keyOf(l.item_code)}`) ?? null;
 
       out.push({
         poId: p.id,
