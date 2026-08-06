@@ -37,6 +37,14 @@ with checks as (
                   where schemaname='public' and tablename='rm_sheet'
                     and cmd='DELETE' and policyname='rm_sheet_delete_admin')
   union all
+  select 'po.status allows sent (20260812)',
+         exists (select 1 from pg_constraint
+                  where conrelid = 'public.po'::regclass and contype = 'c'
+                    and pg_get_constraintdef(oid) like '%sent%')
+  union all
+  select 'grn_mail table (20260811)',
+         to_regclass('public.grn_mail') is not null
+  union all
   -- The blanket policies these replaced must be gone, not merely joined by a
   -- narrower one: policies are OR'ed, so one `using (true)` still lets anyone
   -- delete everything.

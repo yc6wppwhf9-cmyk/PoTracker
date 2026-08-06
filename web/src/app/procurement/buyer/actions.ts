@@ -269,7 +269,19 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
     .eq("id", poId)
     .eq("status", "draft")
     .select("id");
-  if (error) return { error: error.message, ok: false };
+  if (error) {
+    // The status check constraint predates the draft -> sent step, so a
+    // database that has not had the migration applied rejects the value with
+    // a message that names the constraint but not the fix.
+    if (error.message.includes("po_status_check"))
+      return {
+        error:
+          "The database does not yet allow the 'sent' status. Apply " +
+          "supabase/migrations/20260812_po_status_sent.sql, then retry.",
+        ok: false,
+      };
+    return { error: error.message, ok: false };
+  }
   if ((updated?.length ?? 0) === 0)
     return { error: "Could not send this PO — it may already have been sent.", ok: false };
 
