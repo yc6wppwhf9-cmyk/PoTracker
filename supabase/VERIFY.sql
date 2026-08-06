@@ -60,6 +60,10 @@ with checks as (
                   where schemaname='public' and tablename='po'
                     and cmd='UPDATE' and policyname='po_update_approver')
   union all
+  select 'emails_for_role() (20260814)',
+         exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname='public' and p.proname='emails_for_role')
+  union all
   -- The blanket policies these replaced must be gone, not merely joined by a
   -- narrower one: policies are OR'ed, so one `using (true)` still lets anyone
   -- delete everything.

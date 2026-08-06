@@ -381,9 +381,18 @@ def upload_rm_sheet(
     ).execute()
 
     # Hand off to the purchase head. Never fatal: the sheet is already stored,
-    # so a mail problem must not fail the upload.
+    # so a mail problem must not fail the upload — but it is reported, because
+    # mail is skipped rather than failed when there is no key or no recipient,
+    # and a discarded result made that indistinguishable from success.
     try:
-        notify_sheet_uploaded(user.client, sheet_id, len(to_insert), distinct_items)
+        notified = notify_sheet_uploaded(
+            user.client, sheet_id, len(to_insert), distinct_items
+        )
+        if not notified.get("sent"):
+            warnings.append(
+                "The purchase head was not notified: "
+                + str(notified.get("reason") or notified.get("detail") or "unknown reason")
+            )
     except Exception as e:
         warnings.append(f"Could not notify the purchase head ({e}).")
 

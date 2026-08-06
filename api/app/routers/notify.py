@@ -129,8 +129,31 @@ def send_email(to: list[str], subject: str, body_html: str) -> dict[str, Any]:
 
 
 def emails_with_role(client: Client, role: str) -> list[str]:
-    res = client.table("profiles").select("email").eq("role", role).execute()
-    return [r["email"] for r in (res.data or []) if r.get("email")]
+    """Addresses for a role.
+
+    Goes through emails_for_role(), a SECURITY DEFINER function, because the
+    caller usually cannot read the recipient's profile: RLS scopes profiles to
+    yourself unless you are staff, so an uploader looking for purchase heads
+    found none and the mail was skipped without a word. The function returns
+    addresses only, which is all a notification needs.
+
+    Falls back to the direct read where the function is not yet installed, so a
+    database missing the migration behaves as it did before rather than losing
+    every notification.
+    """
+    try:
+        res = client.rpc("emails_for_role", {"p_role": role}).execute()
+        data = res.data or []
+        # The RPC returns a list of scalars, or of single-key rows depending on
+        # how PostgREST renders a setof text.
+        out = [
+            (r if isinstance(r, str) else r.get("emails_for_role"))
+            for r in data
+        ]
+        return [e for e in out if e]
+    except Exception:
+        res = client.table("profiles").select("email").eq("role", role).execute()
+        return [r["email"] for r in (res.data or []) if r.get("email")]
 
 
 def email_of(client: Client, user_id: str) -> Optional[str]:

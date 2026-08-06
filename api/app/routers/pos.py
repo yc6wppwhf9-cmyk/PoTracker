@@ -171,11 +171,19 @@ def upload_po_document(
     ).execute()
 
     # Hand off to the approver. Never fatal: the document is already stored.
+    # A skipped send is folded into the warning the client already shows —
+    # returning it in a field nothing reads is the same as saying nothing.
     notified: dict[str, Any]
     try:
         notified = notify_po_attached(user.client, po_id)
     except Exception as e:
         notified = {"sent": False, "error": str(e)}
+    if not notified.get("sent"):
+        why = notified.get("reason") or notified.get("detail") or notified.get("error")
+        note = f"The approver was not notified: {why}" if why else (
+            "The approver was not notified."
+        )
+        warning = f"{warning} {note}" if warning else note
 
     return {
         "po_id": po_id,
