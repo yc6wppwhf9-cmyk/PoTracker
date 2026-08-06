@@ -68,10 +68,6 @@ export function PoForm({
     }))
   );
 
-  // Only the "set for all" controls; the values themselves live per row.
-  const [bulkEtd, setBulkEtd] = useState("");
-  const [bulkSite, setBulkSite] = useState("");
-
   const [state, formAction, pending] = useActionState(
     async (prev: CreatePoState, fd: FormData) => {
       const res = await createPo(prev, fd);
@@ -151,13 +147,6 @@ export function PoForm({
       .reduce((s, a) => s + (Number(a.ordered) || 0), 0);
   }
 
-  /** Copy one value onto every selected row. */
-  function fillDown(field: "etd" | "site", value: string) {
-    setAllocs((prev) =>
-      prev.map((a) => (a.include ? { ...a, [field]: value } : a))
-    );
-  }
-
   function set(id: string, field: keyof Alloc, value: unknown) {
     setAllocs((prev) =>
       prev.map((a) => (a.id === id ? { ...a, [field]: value } : a))
@@ -222,42 +211,6 @@ export function PoForm({
       <form action={formAction} id="po-form">
         <input type="hidden" name="sheet_id" value={sheetId} />
         <input type="hidden" name="lines" value={JSON.stringify(payload)} />
-
-        {/* A "fill down" control, because ETD and site are usually the same
-            for every line and typing them per row would be tedious. */}
-        <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-black/10 bg-white px-4 py-3 text-xs dark:border-white/10 dark:bg-neutral-900">
-          <span className="font-medium text-neutral-500">
-            Set for all selected:
-          </span>
-          <input
-            type="date"
-            value={bulkEtd}
-            onChange={(e) => {
-              setBulkEtd(e.target.value);
-              if (e.target.value) fillDown("etd", e.target.value);
-            }}
-            className={inputBase}
-          />
-          <select
-            value={bulkSite}
-            onChange={(e) => {
-              setBulkSite(e.target.value);
-              if (e.target.value) fillDown("site", e.target.value);
-            }}
-            className={`w-full max-w-xl ${inputBase}`}
-          >
-            <option value="">— delivery site —</option>
-            {SITES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <span className="text-neutral-400">
-            Each row can still differ; rows sharing a supplier, date and site
-            become one PO.
-          </span>
-        </div>
 
         {/* The row is wider than most screens, so the two columns that say
             WHICH material this is are pinned; scrolled right without them a
