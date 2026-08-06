@@ -45,6 +45,21 @@ with checks as (
   select 'grn_mail table (20260811)',
          to_regclass('public.grn_mail') is not null
   union all
+  select 'po approval columns (20260813)',
+         (select count(*) = 4 from information_schema.columns
+           where table_schema='public' and table_name='po'
+             and column_name in ('approval_status','approved_by','approved_at','approval_note'))
+  union all
+  select 'escalation.po_id (20260813)',
+         exists (select 1 from information_schema.columns
+                  where table_schema='public' and table_name='escalation'
+                    and column_name='po_id')
+  union all
+  select 'approver can update po (20260813)',
+         exists (select 1 from pg_policies
+                  where schemaname='public' and tablename='po'
+                    and cmd='UPDATE' and policyname='po_update_approver')
+  union all
   -- The blanket policies these replaced must be gone, not merely joined by a
   -- narrower one: policies are OR'ed, so one `using (true)` still lets anyone
   -- delete everything.

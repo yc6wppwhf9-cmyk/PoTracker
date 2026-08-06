@@ -6,7 +6,6 @@ import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { type ReconRow } from "@/lib/reconciliation";
 import { ReconTabs } from "@/components/recon/recon-tabs";
-import { submitApproveAndSend } from "../actions";
 import { EscalationPanel } from "./escalation-panel";
 import { ExportButton } from "@/components/recon/export-button";
 
@@ -83,35 +82,20 @@ export default async function ApproverSheetDetailPage({
 
 
 
-      {/* Approval card */}
-      <div className="mt-6 rounded-2xl border border-black/[0.08] bg-white p-6 dark:border-white/[0.08] dark:bg-neutral-900">
-        <h2 className="text-lg font-semibold tracking-tight">
-          Approver Action
-        </h2>
-        <p className="mt-1 text-sm text-neutral-500">
-          Verify the reconciliation breakdown above. Submitting will send this PO package to the Managing Director for final sign-off.
-        </p>
-
-        {approval?.md_summary && (
-          <div className="mt-4 rounded-xl border border-black/[0.06] bg-neutral-50 p-4 dark:border-white/[0.06] dark:bg-neutral-800/50">
-            <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
-              Executive Summary Preview
-            </div>
-            <p className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
-              {approval.md_summary}
-            </p>
-          </div>
-        )}
-
-        <form action={submitApproveAndSend} className="mt-6 flex items-center justify-between">
-          <input type="hidden" name="sheet_id" value={sheetId} />
-          <button
-            type="submit"
-            className="rounded-xl bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-          >
-            {isSentToMd ? "Re-send Approval to MD" : "Approve & Send to Managing Director"}
-          </button>
-        </form>
+      {/* Approving happens per purchase order on /procurement/po-approvals,
+          not per sheet. A sheet becomes many POs to many suppliers, so
+          "approve the sheet" said nothing about which order was agreed to —
+          and the approver is now final, so there is nothing to send onward. */}
+      <div className="mt-6 rounded-2xl border border-black/[0.08] bg-white px-5 py-4 text-sm dark:border-white/[0.08] dark:bg-neutral-900">
+        <span className="text-neutral-500">
+          Purchase orders raised from this sheet are approved individually.
+        </span>{" "}
+        <Link
+          href="/procurement/po-approvals"
+          className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Go to PO approvals →
+        </Link>
       </div>
 
       {/* Detailed line reconciliation. The standalone Reconciliation tab is

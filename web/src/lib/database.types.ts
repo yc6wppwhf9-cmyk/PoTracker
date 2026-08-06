@@ -96,6 +96,7 @@ export type Database = {
           item_code: string | null
           location: string | null
           lot: string | null
+          po_id: string | null
           raised_by: string | null
           reason: string | null
           resolved_at: string | null
@@ -112,6 +113,7 @@ export type Database = {
           item_code?: string | null
           location?: string | null
           lot?: string | null
+          po_id?: string | null
           raised_by?: string | null
           reason?: string | null
           resolved_at?: string | null
@@ -128,6 +130,7 @@ export type Database = {
           item_code?: string | null
           location?: string | null
           lot?: string | null
+          po_id?: string | null
           raised_by?: string | null
           reason?: string | null
           resolved_at?: string | null
@@ -241,6 +244,10 @@ export type Database = {
       }
       po: {
         Row: {
+          approval_note: string | null
+          approval_status: string
+          approved_at: string | null
+          approved_by: string | null
           created_at: string
           created_by: string | null
           doc_path: string | null
@@ -253,6 +260,10 @@ export type Database = {
           uploaded_by: string | null
         }
         Insert: {
+          approval_note?: string | null
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           created_by?: string | null
           doc_path?: string | null
@@ -265,6 +276,10 @@ export type Database = {
           uploaded_by?: string | null
         }
         Update: {
+          approval_note?: string | null
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           created_by?: string | null
           doc_path?: string | null

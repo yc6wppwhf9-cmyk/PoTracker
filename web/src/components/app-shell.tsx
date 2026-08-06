@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   // one: they are separate worklists returned to at different times, and a tab
   // strip hid two of them behind the third.
   { href: "/procurement/approver", label: "MR Sheets to Approve", roles: ["approver"], ready: true },
+  { href: "/procurement/po-approvals", label: "PO Approvals", roles: ["approver"], ready: true },
   { href: "/procurement/pending-pos", label: "Pending POs", roles: ["approver", "purchase_head", "md"], ready: true },
   { href: "/procurement/receipts", label: "GRN Register", roles: ["approver", "purchase_head", "md"], ready: true },
   { href: "/procurement/md", label: "MD Dashboard", roles: ["md"], ready: true },
