@@ -4,32 +4,44 @@ import { useState } from "react";
 import type { PendingPo } from "@/lib/pending-pos";
 
 /**
- * Purchase orders past their ETD with goods still outstanding.
+ * Purchase orders with material still outstanding.
  *
- * Split into nothing-received and part-received because they are different
- * conversations: one asks the supplier whether the order is coming at all, the
- * other chases a specific balance.
+ * Overdue and part-received are separated because they call for different
+ * actions: an overdue order needs the supplier chased, a part-received one
+ * needs a specific balance followed up, and an order not yet due needs only
+ * watching. Collapsing them into one list would bury the urgent among the
+ * merely open.
  */
 export function PendingPos({ pos }: { pos: PendingPo[] }) {
-  const [filter, setFilter] = useState<"all" | "none" | "part">("all");
+  const [filter, setFilter] = useState<"all" | "overdue" | "none" | "part">(
+    "overdue"
+  );
   const [open, setOpen] = useState<string | null>(null);
 
+  const overdue = pos.filter((p) => p.overdue);
   const none = pos.filter((p) => p.nothingReceived);
   const part = pos.filter((p) => !p.nothingReceived);
   const shown =
-    filter === "none" ? none : filter === "part" ? part : pos;
+    filter === "overdue"
+      ? overdue
+      : filter === "none"
+        ? none
+        : filter === "part"
+          ? part
+          : pos;
 
   if (pos.length === 0)
     return (
       <p className="rounded-xl border border-black/10 bg-white px-4 py-6 text-center text-sm text-neutral-500 dark:border-white/10 dark:bg-neutral-900">
-        No purchase order is past its ETD with goods outstanding.
+        Every purchase order has been fully received.
       </p>
     );
 
   const tabs: [typeof filter, string, number][] = [
-    ["all", "All overdue", pos.length],
-    ["none", "Nothing received", none.length],
+    ["overdue", "Overdue", overdue.length],
     ["part", "Part received", part.length],
+    ["none", "Nothing received", none.length],
+    ["all", "All open", pos.length],
   ];
 
   return (
@@ -58,7 +70,7 @@ export function PendingPos({ pos }: { pos: PendingPo[] }) {
               <th className="px-4 py-3 font-medium">PO number</th>
               <th className="px-4 py-3 font-medium">Supplier</th>
               <th className="px-4 py-3 font-medium">ETD</th>
-              <th className="px-4 py-3 font-medium">Overdue</th>
+              <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 text-right font-medium">Ordered</th>
               <th className="px-4 py-3 text-right font-medium">Received</th>
               <th className="px-4 py-3 text-right font-medium">Outstanding</th>
@@ -90,18 +102,24 @@ export function PendingPos({ pos }: { pos: PendingPo[] }) {
                     </td>
                     <td className="px-4 py-3">{p.supplier ?? "—"}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-neutral-600 dark:text-neutral-300">
-                      {p.etd}
+                      {p.etd ?? <span className="text-neutral-400">no ETD</span>}
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          p.daysOverdue >= 14
-                            ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
-                            : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                        }`}
-                      >
-                        {p.daysOverdue}d
-                      </span>
+                      {p.overdue ? (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            p.daysOverdue >= 14
+                              ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                              : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                          }`}
+                        >
+                          {p.daysOverdue}d late
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                          {p.etd ? "not due yet" : "no date"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {p.ordered.toLocaleString()}

@@ -3,8 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 
 /**
- * Purchase orders whose delivery date has passed without the goods fully
- * arriving.
+ * Purchase orders with material still outstanding.
  *
  * Receipt state is derived from the GRN rows rather than stored on the PO. A
  * status column would have to be kept in step with every import and every
@@ -25,8 +24,10 @@ export type PendingPo = {
   poNumber: string | null;
   supplier: string | null;
   site: string | null;
-  etd: string;
+  etd: string | null;
+  /** Days past ETD; 0 when the date has not passed or was never set. */
   daysOverdue: number;
+  overdue: boolean;
   sheetId: string;
   styleRef: string | null;
   ordered: number;
@@ -47,17 +48,17 @@ export async function getPendingPos(): Promise<PendingPo[]> {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  // Only POs that actually reached a supplier can be overdue: a draft was never
-  // sent, and one with no ETD has no date to be late against.
+  // Every PO that reached a supplier, not only the overdue ones. A part
+  // delivery against a PO whose date has not yet passed is still an open
+  // balance somebody has to chase eventually, and filtering on the date meant
+  // it appeared nowhere until it was already late.
   const { data: pos } = await supabase
     .from("po")
     .select(
       "id, po_number, etd, site, rm_sheet_id, status, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, supplier, item_master(name))"
     )
     .neq("status", "draft")
-    .not("etd", "is", null)
-    .lt("etd", today)
-    .order("etd", { ascending: true });
+    .order("etd", { ascending: true, nullsFirst: false });
 
   const rows = pos ?? [];
   if (rows.length === 0) return [];
@@ -123,10 +124,13 @@ export async function getPendingPos(): Promise<PendingPo[]> {
       | { style_ref: string | null }
       | null;
 
-    const etd = String(p.etd);
-    const daysOverdue = Math.floor(
-      (Date.parse(today) - Date.parse(etd)) / 86_400_000
-    );
+    const etd = p.etd ? String(p.etd) : null;
+    const daysOverdue = etd
+      ? Math.max(
+          0,
+          Math.floor((Date.parse(today) - Date.parse(etd)) / 86_400_000)
+        )
+      : 0;
 
     out.push({
       id: p.id,
@@ -137,6 +141,7 @@ export async function getPendingPos(): Promise<PendingPo[]> {
       site: p.site,
       etd,
       daysOverdue,
+      overdue: Boolean(etd && etd < today),
       sheetId: p.rm_sheet_id,
       styleRef: sheet?.style_ref ?? null,
       ordered,
@@ -146,6 +151,11 @@ export async function getPendingPos(): Promise<PendingPo[]> {
     });
   }
 
-  // Most overdue first — that is the order they need chasing in.
-  return out.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  // Most overdue first — that is the order they need chasing in. Orders not
+  // yet due follow, earliest date first, so the next one to watch is on top.
+  return out.sort(
+    (a, b) =>
+      b.daysOverdue - a.daysOverdue ||
+      (a.etd ?? "9999").localeCompare(b.etd ?? "9999")
+  );
 }

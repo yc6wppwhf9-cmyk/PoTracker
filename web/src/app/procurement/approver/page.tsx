@@ -34,7 +34,7 @@ export default async function ApproverList() {
 
       <div className="mt-8">
         <h2 className="text-lg font-semibold tracking-tight">
-          Pending POs
+          Open POs
           {pending.length > 0 && (
             <span className="ml-2 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950 dark:text-rose-300">
               {pending.length}
@@ -42,8 +42,9 @@ export default async function ApproverList() {
           )}
         </h2>
         <p className="mb-3 mt-1 text-sm text-neutral-500">
-          Past their ETD with goods still outstanding, measured against the
-          imported GRN register.
+          Material still outstanding against a purchase order, measured from the
+          imported GRN register. Overdue first; part-received orders are shown
+          whether or not their date has passed.
         </p>
         <PendingPos pos={pending} />
       </div>
