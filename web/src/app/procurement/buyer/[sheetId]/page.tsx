@@ -84,7 +84,7 @@ export default async function BuyerSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, created_at, doc_path, etd, site, po_line(item_code, lot, location, ordered_qty, supplier, remark, item_master(name))"
+      "id, status, created_at, doc_path, etd, site, po_number, po_line(item_code, lot, location, ordered_qty, supplier, remark, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .eq("created_by", profile.userId)
@@ -140,7 +140,11 @@ export default async function BuyerSheetPage({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
                     <span className="flex items-center gap-3">
-                      <span className="font-mono text-xs">{p.id.slice(0, 8)}</span>
+                      {/* Shows the supplier-facing number once the PO team
+                          has attached the document it comes from. */}
+                      <span className="font-mono text-xs">
+                        {p.po_number ?? p.id.slice(0, 8)}
+                      </span>
                       <span className="font-medium">
                         {supplierOf(poLines) ?? "No supplier set"}
                       </span>

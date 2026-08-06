@@ -100,8 +100,17 @@ export default async function PoTeamSheetPage({
             >
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div>
+                  {/* The supplier-facing number once it is known. The row's
+                      uuid means nothing to anyone outside this database, so it
+                      only stands in until the document supplies the real one. */}
                   <div className="font-mono text-xs text-neutral-500">
-                    PO {p.id.slice(0, 8)}
+                    {p.po_number ? (
+                      <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                        {p.po_number}
+                      </span>
+                    ) : (
+                      <>PO {p.id.slice(0, 8)} · number not captured yet</>
+                    )}
                   </div>
                   {/* Drafts are split one per supplier, so the supplier is what
                       identifies a card — it says which document belongs here. */}
