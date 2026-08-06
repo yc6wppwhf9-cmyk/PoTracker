@@ -3,15 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { savePoLines, type LineEdit } from "../actions";
+import { shortSite } from "@/lib/sites";
 
 export type EditableLine = {
   id: string;
   item_code: string | null;
   name: string | null;
   lot: string | null;
-  location: string | null;
-  /** From the RM sheet — what was asked for. Read-only. */
-  required: number | null;
   /** What the PO is actually being raised for. Editable. */
   ordered_qty: number;
   /** Chosen by the buyer; shown here for reference. */
@@ -24,10 +22,16 @@ export function PoLinesEditor({
   poId,
   lines,
   locked,
+  etd,
+  site,
 }: {
   poId: string;
   lines: EditableLine[];
   locked: boolean;
+  /** Held on the PO, not the line: every line of a PO shares them, because
+   *  drafts group by supplier, date and destination together. */
+  etd: string | null;
+  site: string | null;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<Record<string, { qty: string }>>(
@@ -59,7 +63,6 @@ export function PoLinesEditor({
   }
 
   const total = lines.reduce((s, l) => s + (Number(rows[l.id]?.qty) || 0), 0);
-  const totalRequired = lines.reduce((s, l) => s + (l.required ?? 0), 0);
 
   return (
     <div className="px-2 pb-4">
@@ -69,10 +72,10 @@ export function PoLinesEditor({
             <tr>
               <th className="px-3 py-2 font-medium">Item</th>
               <th className="px-3 py-2 font-medium">Code</th>
-              <th className="px-3 py-2 font-medium">Plant</th>
               <th className="px-3 py-2 font-medium">Lot</th>
-              <th className="px-3 py-2 font-medium">Required</th>
               <th className="px-3 py-2 font-medium">PO qty</th>
+              <th className="px-3 py-2 font-medium">ETD</th>
+              <th className="px-3 py-2 font-medium">Delivery site</th>
               <th className="px-3 py-2 font-medium">Supplier</th>
               <th className="px-3 py-2 font-medium">Rate</th>
               <th className="px-3 py-2 font-medium">Value</th>
@@ -89,13 +92,7 @@ export function PoLinesEditor({
                 >
                   <td className="px-3 py-2">{l.name ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-xs">{l.item_code}</td>
-                  <td className="px-3 py-2 text-neutral-500">
-                    {l.location ?? "—"}
-                  </td>
                   <td className="px-3 py-2 text-neutral-500">{l.lot ?? "—"}</td>
-                  <td className="px-3 py-2 tabular-nums text-neutral-600 dark:text-neutral-400">
-                    {l.required == null ? "—" : l.required.toLocaleString()}
-                  </td>
                   <td className="px-3 py-2">
                     {locked ? (
                       Number(l.ordered_qty).toLocaleString()
@@ -109,19 +106,15 @@ export function PoLinesEditor({
                         className="w-28 rounded-md border border-black/10 bg-white px-2 py-1 text-sm tabular-nums dark:border-white/15 dark:bg-neutral-950"
                       />
                     )}
-                    {l.required != null && q > 0 && q !== l.required && (
-                      <div
-                        className={`mt-0.5 text-[11px] tabular-nums ${
-                          q > l.required
-                            ? "text-neutral-500"
-                            : "text-red-600 dark:text-red-400"
-                        }`}
-                      >
-                        {q > l.required
-                          ? `+${(q - l.required).toLocaleString()} over required`
-                          : `${(q - l.required).toLocaleString()} short`}
-                      </div>
-                    )}
+                  </td>
+                  {/* Repeated per row because the PO team reads this table
+                      line by line against the signed document, which prints the
+                      date and ship-to beside every item. */}
+                  <td className="px-3 py-2 whitespace-nowrap text-neutral-600 dark:text-neutral-300">
+                    {etd ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
+                    {site ? shortSite(site) : "—"}
                   </td>
                   <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
                     {l.supplier ?? "—"}
@@ -164,8 +157,7 @@ export function PoLinesEditor({
               {busy ? "Saving…" : "Save PO quantities"}
             </button>
             <span className="text-xs tabular-nums text-neutral-500">
-              Required {totalRequired.toLocaleString()} · PO{" "}
-              {total.toLocaleString()}
+              PO total {total.toLocaleString()}
             </span>
             {saved && (
               <span className="text-xs text-green-700 dark:text-green-400">

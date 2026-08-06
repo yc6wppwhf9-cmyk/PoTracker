@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
-import { fetchAll } from "@/lib/supabase/fetch-all";
 import { UploadPo } from "./upload-po";
 import { PoLinesEditor } from "./po-lines-editor";
 import { PoNumberField } from "./po-number-field";
@@ -60,25 +59,11 @@ export default async function PoTeamSheetPage({
     .neq("status", "draft")
     .order("created_at", { ascending: false });
 
-  // Required quantities from the RM sheet, keyed the same way the
-  // reconciliation view joins: (item_code, lot, location). Shown read-only
-  // beside the editable PO quantity so the PO team can see what was asked for.
-  const reqs = await fetchAll((from, to) =>
-    supabase
-      .from("rm_requirement")
-      .select("item_code, lot, location, required_qty")
-      .eq("rm_sheet_id", sheetId)
-      .not("item_code", "is", null)
-      .order("id")
-      .range(from, to)
-  );
-  const reqKey = (code: string, lot: string | null, loc: string | null) =>
-    `${code}__${lot ?? ""}__${loc ?? ""}`;
-  const requiredByKey = new Map<string, number>();
-  for (const r of reqs) {
-    const k = reqKey(r.item_code as string, r.lot as string | null, r.location as string | null);
-    requiredByKey.set(k, (requiredByKey.get(k) ?? 0) + (Number(r.required_qty) || 0));
-  }
+  // The sheet requirement is deliberately not shown here. The PO team's job is
+  // to make the PO match the signed document, not the requisition — whether the
+  // order covers the requirement is the buyer's decision and the approver's
+  // check, both of which have the whole sheet in view. Showing it per line
+  // meant a lot split across three suppliers appeared short on all three.
 
   // created_by -> auth.users (no FK to profiles); resolve names separately.
   const buyerIds = [...new Set((pos ?? []).map((p) => p.created_by).filter(Boolean))];
@@ -170,18 +155,13 @@ export default async function PoTeamSheetPage({
                 <PoLinesEditor
                   poId={p.id}
                   locked={Boolean(p.doc_path)}
+                  etd={p.etd}
+                  site={p.site}
                   lines={lines.map((l) => ({
                     id: l.id,
                     item_code: l.item_code,
                     name: l.item_master?.name ?? null,
                     lot: l.lot,
-                    location: l.location,
-                    required:
-                      l.item_code == null
-                        ? null
-                        : requiredByKey.get(
-                            reqKey(l.item_code, l.lot, l.location)
-                          ) ?? null,
                     ordered_qty: Number(l.ordered_qty),
                     supplier: l.supplier,
                     rate: l.rate == null ? null : Number(l.rate),
