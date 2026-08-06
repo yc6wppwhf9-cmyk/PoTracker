@@ -9,16 +9,24 @@ export function UploadPo({ poId }: { poId: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The document can attach successfully while the PO number does not — the
+  // number belonging to another order does not make the attachment a failure.
+  const [warning, setWarning] = useState<string | null>(null);
 
   async function onChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setBusy(true);
     setError(null);
+    setWarning(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      await postForm(`/pos/${poId}/upload`, fd);
+      const res = await postForm<{ warning?: string | null }>(
+        `/pos/${poId}/upload`,
+        fd
+      );
+      setWarning(res?.warning ?? null);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
@@ -46,6 +54,11 @@ export function UploadPo({ poId }: { poId: string }) {
         {busy ? "Uploading…" : "Upload doc"}
       </label>
       {error && <span className="text-xs text-red-600">{error}</span>}
+      {warning && (
+        <span className="max-w-md text-xs text-amber-700 dark:text-amber-400">
+          {warning}
+        </span>
+      )}
     </span>
   );
 }

@@ -129,20 +129,29 @@ def upload_po_document(
     if resolved:
         fields["po_number"] = resolved
 
+    warning: Optional[str] = None
     try:
-        upd = (
-            user.client.table("po").update(fields).eq("id", po_id).execute()
-        )
+        upd = user.client.table("po").update(fields).eq("id", po_id).execute()
     except Exception as e:
-        # A duplicate PO number is the likely cause and is worth naming: the
-        # unique index exists precisely so two POs cannot claim one number.
-        if resolved and "po_po_number_key" in str(e):
-            raise HTTPException(
-                409,
-                f"PO number {resolved} is already used by another purchase "
-                "order. Check the number on the document.",
+        # A PO number already claimed by another order must not cost us the
+        # attachment. The file is in storage by this point, so failing the whole
+        # update leaves the document uploaded but the PO showing none, and every
+        # retry fails the same way. Attach it, and report the number separately
+        # for someone to correct — which the PO number field on the card allows.
+        if resolved and _is_duplicate_po_number(e):
+            warning = (
+                f"The document is attached, but PO number {resolved} already "
+                "belongs to another purchase order, so it was not saved. Check "
+                "the number on the document and set it on this PO."
             )
-        raise HTTPException(500, f"Failed to update PO record: {e}")
+            fields.pop("po_number", None)
+            resolved = None
+            try:
+                upd = user.client.table("po").update(fields).eq("id", po_id).execute()
+            except Exception as e2:
+                raise HTTPException(500, f"Failed to update PO record: {e2}")
+        else:
+            raise HTTPException(500, f"Failed to update PO record: {e}")
     if not upd.data:
         raise HTTPException(500, "Failed to update PO record.")
 
@@ -174,8 +183,20 @@ def upload_po_document(
         "status": "uploaded",
         "po_number": resolved,
         "po_number_source": "typed" if typed else ("extracted" if extracted else None),
+        "warning": warning,
         "notified": notified,
     }
+
+
+def _is_duplicate_po_number(err: Exception) -> bool:
+    """True when a write failed because another PO already holds the number.
+
+    Matched on both the index name and the SQLSTATE, because the driver
+    surfaces the error differently depending on whether PostgREST reports it as
+    JSON or the client raises it directly.
+    """
+    text = str(err)
+    return "po_po_number_key" in text or "23505" in text
 
 
 @router.post("/import-register")
