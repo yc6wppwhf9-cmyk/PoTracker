@@ -1,9 +1,42 @@
 import { createClient } from "@/lib/supabase/client";
+import { cleanEnv } from "@/lib/env";
 
 /** Absolute URL to a FastAPI endpoint. */
 export function apiUrl(path: string): string {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  const base = apiBase();
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+/** Where the API lives, as the browser sees it. */
+export function apiBase(): string {
+  return (
+    cleanEnv("NEXT_PUBLIC_API_BASE_URL", process.env.NEXT_PUBLIC_API_BASE_URL) ||
+    "http://localhost:8000"
+  );
+}
+
+/**
+ * Turn a network-level failure into something that names the cause.
+ *
+ * fetch() rejects with a bare "Failed to fetch" whether the host is wrong,
+ * unreachable, or blocked by CORS — and the commonest cause by far is
+ * NEXT_PUBLIC_API_BASE_URL being unset in the browser bundle, which leaves it
+ * pointing at localhost on the user's own machine.
+ */
+function describeNetworkFailure(e: unknown): Error {
+  const base = apiBase();
+  const local = base.includes("localhost") || base.includes("127.0.0.1");
+  if (local)
+    return new Error(
+      `Could not reach the API at ${base}. NEXT_PUBLIC_API_BASE_URL is not set ` +
+        "in this deployment, so the browser is calling your own machine. Set it " +
+        "to the API URL and redeploy — it is baked in at build time."
+    );
+  return new Error(
+    `Could not reach the API at ${base} (${
+      e instanceof Error ? e.message : "network error"
+    }). Check the service is running and that this site is in ALLOWED_ORIGINS.`
+  );
 }
 
 /** Current user's Supabase access token (JWT) for Authorization: Bearer. */
@@ -24,9 +57,14 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   const token = await getAccessToken();
   if (!token) throw new Error("Not signed in.");
 
-  const res = await fetch(apiUrl(path), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (e) {
+    throw describeNetworkFailure(e);
+  }
   if (!res.ok) {
     const text = await res.text();
     let detail = text;
@@ -62,11 +100,16 @@ export async function postForm<T = unknown>(
   const token = await getAccessToken();
   if (!token) throw new Error("Not signed in.");
 
-  const res = await fetch(apiUrl(path), {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+  } catch (e) {
+    throw describeNetworkFailure(e);
+  }
 
   let body: unknown = null;
   const text = await res.text();

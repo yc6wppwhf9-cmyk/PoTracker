@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { GrnImportForm } from "./import-form";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 
 export default async function GrnPage() {
   const profile = await requireRole("po_team", "purchase_head");
@@ -18,6 +19,57 @@ export default async function GrnPage() {
   const { count: total } = await supabase
     .from("grn")
     .select("id", { count: "exact", head: true });
+
+  // A receipt on its own says nothing — 3,085 arrived is only meaningful
+  // against what was ordered. Ordered comes from the PO, and received is the
+  // running total across every receipt for that line, not just this one.
+  const recentRows = recent ?? [];
+  const poNumbers = [
+    ...new Set(recentRows.map((r) => r.po_number).filter(Boolean)),
+  ] as string[];
+
+  const key = (po: string | null, code: string | null, lot: string | null) =>
+    `${(po ?? "").toUpperCase()}__${(code ?? "").toUpperCase()}__${lot ?? ""}`;
+
+  const orderedBy = new Map<string, number>();
+  const receivedBy = new Map<string, number>();
+
+  if (poNumbers.length > 0) {
+    const { data: pos } = await supabase
+      .from("po")
+      .select("po_number, po_line(item_code, lot, ordered_qty)")
+      .in("po_number", poNumbers)
+      .neq("status", "draft");
+    for (const p of pos ?? [])
+      for (const l of (p.po_line as unknown as {
+        item_code: string | null;
+        lot: string | null;
+        ordered_qty: number;
+      }[]) ?? []) {
+        const k = key(p.po_number, l.item_code, l.lot);
+        orderedBy.set(k, (orderedBy.get(k) ?? 0) + (Number(l.ordered_qty) || 0));
+      }
+
+    // Paged: a truncated read would understate the running total and hide an
+    // excess behind an apparently normal figure.
+    const all = await fetchAll<{
+      po_number: string | null;
+      item_code: string | null;
+      lot: string | null;
+      qty: number;
+    }>((from, to) =>
+      supabase
+        .from("grn")
+        .select("po_number, item_code, lot, qty")
+        .in("po_number", poNumbers)
+        .order("id")
+        .range(from, to)
+    );
+    for (const g of all) {
+      const k = key(g.po_number, g.item_code, g.lot);
+      receivedBy.set(k, (receivedBy.get(k) ?? 0) + (Number(g.qty) || 0));
+    }
+  }
 
   return (
     <AppShell profile={profile}>
@@ -57,12 +109,25 @@ export default async function GrnPage() {
               <th className="px-4 py-3 font-medium">PO number</th>
               <th className="px-4 py-3 font-medium">Item</th>
               <th className="px-4 py-3 font-medium">Lot</th>
-              <th className="px-4 py-3 text-right font-medium">Qty</th>
+              <th className="px-4 py-3 text-right font-medium">This receipt</th>
+              <th className="px-4 py-3 text-right font-medium">Ordered</th>
+              <th className="px-4 py-3 text-right font-medium">Received</th>
+              <th className="px-4 py-3 text-right font-medium">Excess</th>
               <th className="px-4 py-3 font-medium">Supplier</th>
             </tr>
           </thead>
           <tbody>
-            {(recent ?? []).map((r, i) => (
+            {recentRows.map((r, i) => {
+              const k = key(r.po_number, r.item_code, r.lot);
+              const ordered = orderedBy.get(k) ?? null;
+              const received = receivedBy.get(k) ?? (Number(r.qty) || 0);
+              // 2% matches the approver's view: deliveries are rarely exact and
+              // flagging every rounding difference trains people to ignore it.
+              const excess =
+                ordered != null && received > ordered * 1.02
+                  ? received - ordered
+                  : null;
+              return (
               <tr
                 key={`${r.grc_no}-${r.item_code ?? ""}-${r.lot ?? ""}-${i}`}
                 className="border-b border-black/5 last:border-0 dark:border-white/5"
@@ -81,14 +146,36 @@ export default async function GrnPage() {
                 <td className="px-4 py-3 text-right tabular-nums">
                   {Number(r.qty).toLocaleString()}
                 </td>
+                <td className="px-4 py-3 text-right tabular-nums text-neutral-500">
+                  {ordered == null ? (
+                    <span title="No purchase order in this system carries that PO number, barcode and lot.">
+                      no match
+                    </span>
+                  ) : (
+                    ordered.toLocaleString()
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {received.toLocaleString()}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {excess == null ? (
+                    <span className="text-neutral-300">—</span>
+                  ) : (
+                    <span className="font-semibold text-rose-700 dark:text-rose-400">
+                      +{excess.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-neutral-600 dark:text-neutral-300">
                   {r.supplier ?? "—"}
                 </td>
               </tr>
-            ))}
-            {(!recent || recent.length === 0) && (
+              );
+            })}
+            {recentRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-neutral-500">
+                <td colSpan={10} className="px-4 py-8 text-center text-neutral-500">
                   No receipts imported yet.
                 </td>
               </tr>
