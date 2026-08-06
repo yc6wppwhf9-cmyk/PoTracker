@@ -16,7 +16,9 @@
 --   item_master                12,319 catalogue items — re-importing these is
 --                              slow and they are not test data
 --   uom_conversion             unit conversions, same reasoning
---   profiles + auth.users      your logins; deleting them locks you out
+--   profiles + auth.users      every account, including the demo logins. Data
+--                              referencing them is cleared above, so nothing
+--                              needs the accounts removed as well.
 --
 -- Order matters: children before parents, or foreign keys reject the delete.
 -- Wrapped in a transaction, so a failure part-way leaves the database exactly
@@ -70,6 +72,30 @@ order by 1;
 --   delete from public.uom_conversion;
 --   delete from public.item_master;
 --   commit;
+-- ─────────────────────────────────────────────────────────────────────────
+
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- OPTIONAL — only if you want every login except the admins removed.
+--
+-- Run AFTER the deletes above: rm_sheet.uploaded_by, po.created_by,
+-- rm_requirement.assigned_buyer and audit_log.actor_id all reference these
+-- accounts, and none of it can go while those rows still exist.
+--
+-- The guard is not decoration. Deleting every account locks you out of the
+-- application with no way back in from the app itself, so the block refuses to
+-- run rather than leaving you to discover it at the login screen.
+--
+--   do $$
+--   begin
+--     if (select count(*) from public.profiles where role = 'admin') = 0 then
+--       raise exception 'No admin account exists — refusing to delete logins.';
+--     end if;
+--
+--     delete from public.profiles  where role <> 'admin';
+--     delete from auth.users u
+--      where not exists (select 1 from public.profiles p where p.id = u.id);
+--   end $$;
 -- ─────────────────────────────────────────────────────────────────────────
 
 
