@@ -25,12 +25,17 @@ router = APIRouter(prefix="/grn", tags=["grn"])
 
 ALLOWED_EXT = (".xlsx", ".xlsm", ".xls")
 
-# Reading a spreadsheet costs several times the file size in memory, and the
-# hosted instance is small. Beyond this the process is killed mid-request — the
-# client sees the connection drop with no status, which reads as a network or
-# CORS failure and says nothing about the real cause. Refusing with a message
-# is the better failure.
-MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+# Reading a spreadsheet costs several times the file size in memory. Beyond
+# this the process risks being killed mid-request, and the client then sees the
+# connection drop with no status — which reads as a network or CORS failure and
+# says nothing about the real cause. Refusing with a message is the better
+# failure.
+#
+# The parser merges rows as it reads rather than building a list and then
+# deduplicating it, so a register of this size no longer holds two copies of
+# itself. Raise this further only alongside a larger instance: the ceiling is
+# the instance's memory, not the file.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 @router.post("/import")
@@ -167,11 +172,20 @@ def _store(user: Any, rows: list[dict[str, Any]]) -> tuple[int, list[str]]:
         chunk = grc_numbers[i : i + 200]
         user.client.table("grn").delete().in_("grc_no", chunk).execute()
 
+    # 1000 a time: a large register is otherwise hundreds of round trips, and
+    # the whole import has to finish inside one HTTP request the browser is
+    # still waiting on.
     inserted = 0
-    for i in range(0, len(rows), 500):
-        chunk = [{**r, "imported_by": user.id} for r in rows[i : i + 500]]
-        res = user.client.table("grn").insert(chunk).execute()
-        inserted += len(res.data or [])
+    for i in range(0, len(rows), 1000):
+        chunk = [{**r, "imported_by": user.id} for r in rows[i : i + 1000]]
+        res = (
+            user.client.table("grn")
+            .insert(chunk, returning="minimal")
+            .execute()
+        )
+        # returning="minimal" means no rows come back — sending 145,000 rows
+        # only to receive them again is bandwidth and memory for nothing.
+        inserted += len(res.data or []) or len(chunk)
     return inserted, grc_numbers
 
 

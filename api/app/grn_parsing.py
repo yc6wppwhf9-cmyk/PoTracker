@@ -138,7 +138,12 @@ def parse_grn_register(data: bytes) -> dict[str, Any]:
     is how a missing delivery becomes invisible.
     """
     wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
-    rows: list[GrnRow] = []
+    # Merged as we go. Collecting every row and deduplicating afterwards held
+    # two copies of the register at once, which is what a large export cannot
+    # afford on a small instance.
+    merged: dict[tuple[str, str, str], GrnRow] = {}
+    parsed_rows = 0
+    merged_count = 0
     skipped_no_grc = 0
     skipped_no_qty = 0
     header_found = False
@@ -187,42 +192,40 @@ def parse_grn_register(data: bytes) -> dict[str, Any]:
             item_code = str(record.get("item_code") or "").strip().upper() or None
             lot = str(record.get("lot") or "").strip() or None
 
-            rows.append(
-                GrnRow(
-                    grc_no=grc_no,
-                    grc_date=_date(record.get("grc_date")),
-                    po_number=_clean_po_number(record.get("po_number")),
-                    po_date=_date(record.get("po_date")),
-                    item_code=item_code,
-                    item_name=str(record.get("item_name") or "").strip() or None,
-                    lot=lot,
-                    qty=qty,
-                    stock_point=str(record.get("stock_point") or "").strip() or None,
-                    supplier=str(record.get("supplier") or "").strip() or None,
-                    department=str(record.get("department") or "").strip() or None,
-                    doc_no=str(record.get("doc_no") or "").strip() or None,
-                    doc_date=_date(record.get("doc_date")),
-                    landed_cost=_num(record.get("landed_cost")),
-                    remarks=str(record.get("remarks") or "").strip() or None,
-                )
+            parsed_rows += 1
+            key = (grc_no, item_code or "", lot or "")
+            existing = merged.get(key)
+            if existing is not None:
+                # The same receipt line split across two rows of the export is
+                # one arrival, not two.
+                existing["qty"] += qty
+                merged_count += 1
+                continue
+
+            merged[key] = GrnRow(
+                grc_no=grc_no,
+                grc_date=_date(record.get("grc_date")),
+                po_number=_clean_po_number(record.get("po_number")),
+                po_date=_date(record.get("po_date")),
+                item_code=item_code,
+                item_name=str(record.get("item_name") or "").strip() or None,
+                lot=lot,
+                qty=qty,
+                stock_point=str(record.get("stock_point") or "").strip() or None,
+                supplier=str(record.get("supplier") or "").strip() or None,
+                department=str(record.get("department") or "").strip() or None,
+                doc_no=str(record.get("doc_no") or "").strip() or None,
+                doc_date=_date(record.get("doc_date")),
+                landed_cost=_num(record.get("landed_cost")),
+                remarks=str(record.get("remarks") or "").strip() or None,
             )
 
     wb.close()
 
-    # Repeated (grc, item, lot) within one file are summed, so the unique index
-    # holds and a split line in the export is not silently dropped.
-    merged: dict[tuple[str, str, str], GrnRow] = {}
-    for r in rows:
-        key = (r["grc_no"], r["item_code"] or "", r["lot"] or "")
-        if key in merged:
-            merged[key]["qty"] += r["qty"]
-        else:
-            merged[key] = r
-
     return {
         "rows": list(merged.values()),
-        "parsed": len(rows),
-        "merged": len(rows) - len(merged),
+        "parsed": parsed_rows,
+        "merged": merged_count,
         "skipped_no_grc": skipped_no_grc,
         "skipped_no_qty": skipped_no_qty,
         "header_found": header_found,
