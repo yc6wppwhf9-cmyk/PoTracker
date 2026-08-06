@@ -17,8 +17,13 @@ const NAV: NavItem[] = [
   { href: "/procurement/assign", label: "Assign Buyers", roles: ["purchase_head"], ready: true },
   { href: "/procurement/buyer", label: "Buyer Workspace", roles: ["buyer"], ready: true },
   { href: "/procurement/po-team", label: "PO Team", roles: ["po_team"], ready: true },
-  { href: "/procurement/grn", label: "GRN Register", roles: ["po_team", "purchase_head"], ready: true },
-  { href: "/procurement/approver", label: "Approvals", roles: ["approver"], ready: true },
+  { href: "/procurement/grn", label: "GRN Import", roles: ["po_team", "purchase_head"], ready: true },
+  // The approver's three jobs, each its own screen rather than tabs inside
+  // one: they are separate worklists returned to at different times, and a tab
+  // strip hid two of them behind the third.
+  { href: "/procurement/approver", label: "MR Sheets to Approve", roles: ["approver"], ready: true },
+  { href: "/procurement/pending-pos", label: "Pending POs", roles: ["approver", "purchase_head", "md"], ready: true },
+  { href: "/procurement/receipts", label: "GRN Register", roles: ["approver", "purchase_head", "md"], ready: true },
   { href: "/procurement/md", label: "MD Dashboard", roles: ["md"], ready: true },
   { href: "/admin/item-master", label: "Item Catalogue", roles: ["admin"], ready: true },
   { href: "/admin/users", label: "Users", roles: ["admin"], ready: true },
