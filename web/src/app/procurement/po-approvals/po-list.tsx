@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { PoApproval } from "@/lib/po-approvals";
 import { shortSite } from "@/lib/sites";
 import { approvePo, escalatePo } from "./actions";
+import { formatDate } from "@/lib/format";
 
 /**
  * Purchase orders awaiting the approver's decision, and those already decided.
@@ -187,7 +188,7 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
                     <div className="mt-0.5 text-xs text-green-700 dark:text-green-400">
                       Approved by {p.approvedBy ?? "—"}
                       {p.approvedAt
-                        ? ` on ${new Date(p.approvedAt).toLocaleDateString()}`
+                        ? ` on ${formatDate(p.approvedAt)}`
                         : ""}
                       {p.approvalNote ? ` — ${p.approvalNote}` : ""}
                     </div>

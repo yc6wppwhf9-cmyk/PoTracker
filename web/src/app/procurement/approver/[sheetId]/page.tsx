@@ -8,6 +8,7 @@ import { type ReconRow } from "@/lib/reconciliation";
 import { ReconTabs } from "@/components/recon/recon-tabs";
 import { EscalationPanel } from "./escalation-panel";
 import { ExportButton } from "@/components/recon/export-button";
+import { formatDateTime } from "@/lib/format";
 
 export default async function ApproverSheetDetailPage({
   params,
@@ -65,7 +66,7 @@ export default async function ApproverSheetDetailPage({
             Review: {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Uploaded on {new Date(sheet.created_at).toLocaleString()}
+            Uploaded on {formatDateTime(sheet.created_at)}
           </p>
         </div>
         <div className="flex items-center gap-2">

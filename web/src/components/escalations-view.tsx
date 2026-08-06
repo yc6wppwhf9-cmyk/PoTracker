@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { resolveEscalation } from "@/app/procurement/approver/escalate-actions";
+import { formatDateTime } from "@/lib/format";
 
 type Row = {
   id: string;
@@ -66,6 +67,10 @@ export function EscalationsView({
   }, [supabase, mode]);
 
   useEffect(() => {
+    // The panel loads its own data and re-loads on a realtime change. `load`
+    // sets state only after awaiting, but the rule cannot see through the
+    // async callback.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     const ch = supabase
       .channel(`escalations-${mode}`)
@@ -149,7 +154,7 @@ export function EscalationsView({
                   >
                     {r.status === "md_escalated"
                       ? "SLA passed"
-                      : new Date(r.escalate_after).toLocaleString()}
+                      : formatDateTime(r.escalate_after)}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right">

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { EscalationsView } from "@/components/escalations-view";
 import { notifyMdEscalations } from "@/lib/notify";
+import { formatDate } from "@/lib/format";
 
 export default async function MdDashboardPage() {
   const profile = await requireRole("md", "admin");
@@ -120,7 +121,7 @@ export default async function MdDashboardPage() {
                       {r.md_summary || "Reconciliation review pending."}
                     </td>
                     <td className="px-4 py-3 text-xs text-neutral-500 whitespace-nowrap">
-                      {r.sent_to_md_at ? new Date(r.sent_to_md_at).toLocaleDateString() : "-"}
+                      {r.sent_to_md_at ? formatDate(r.sent_to_md_at) : "-"}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link
@@ -196,7 +197,7 @@ export default async function MdDashboardPage() {
                         {r.md_summary}
                       </td>
                       <td className="px-4 py-3 text-xs text-neutral-500 whitespace-nowrap">
-                        {r.sent_to_md_at ? new Date(r.sent_to_md_at).toLocaleDateString() : "-"}
+                        {r.sent_to_md_at ? formatDate(r.sent_to_md_at) : "-"}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link

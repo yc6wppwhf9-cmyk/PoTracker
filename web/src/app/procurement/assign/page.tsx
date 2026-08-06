@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { DeleteSheetBtn } from "./delete-sheet-btn";
+import { formatDateTime } from "@/lib/format";
 
 export default async function AssignListPage() {
   const profile = await requireRole("purchase_head");
@@ -45,7 +46,7 @@ export default async function AssignListPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-neutral-500">
-                  {new Date(s.created_at).toLocaleString()}
+                  {formatDateTime(s.created_at)}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Link

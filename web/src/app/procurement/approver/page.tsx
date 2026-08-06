@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { formatDateTime } from "@/lib/format";
 
 /** A sheet still needing the approver's decision, as opposed to one already
  *  sent to the MD or decided. */
@@ -90,7 +91,7 @@ export default async function ApproverSheets() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-neutral-500">
-                    {new Date(s.created_at).toLocaleString()}
+                    {formatDateTime(s.created_at)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link

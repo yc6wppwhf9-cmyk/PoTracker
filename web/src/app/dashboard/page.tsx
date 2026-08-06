@@ -6,6 +6,7 @@ import { ROLE_LABELS } from "@/lib/roles";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import type { AppRole } from "@/lib/database.types";
+import { hourInBusinessZone } from "@/lib/format";
 
 type DB = SupabaseClient<Database>;
 
@@ -171,7 +172,9 @@ export default async function DashboardPage() {
     supabase as unknown as DB
   );
 
-  const hour = new Date().getHours();
+  // The server runs in UTC, so reading its clock greeted people with "Good
+  // morning" in the middle of the afternoon.
+  const hour = hourInBusinessZone();
   const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (

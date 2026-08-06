@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { UploadForm } from "./upload-form";
+import { formatDateTime } from "@/lib/format";
 
 export default async function UploadPage() {
   const profile = await requireRole("uploader");
@@ -43,7 +44,7 @@ export default async function UploadPage() {
                   <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800">
                     {s.status}
                   </span>
-                  {new Date(s.created_at).toLocaleString()}
+                  {formatDateTime(s.created_at)}
                 </span>
               </li>
             ))}

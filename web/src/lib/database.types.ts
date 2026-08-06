@@ -206,6 +206,45 @@ export type Database = {
         }
         Relationships: []
       }
+      grn_mail: {
+        Row: {
+          detail: string | null
+          filename: string | null
+          id: string
+          lines: number
+          message_id: string
+          processed_at: string
+          processed_by: string | null
+          sender: string | null
+          status: string
+          subject: string | null
+        }
+        Insert: {
+          detail?: string | null
+          filename?: string | null
+          id?: string
+          lines?: number
+          message_id: string
+          processed_at?: string
+          processed_by?: string | null
+          sender?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Update: {
+          detail?: string | null
+          filename?: string | null
+          id?: string
+          lines?: number
+          message_id?: string
+          processed_at?: string
+          processed_by?: string | null
+          sender?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Relationships: []
+      }
       item_master: {
         Row: {
           article_name: string | null

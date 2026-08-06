@@ -4,27 +4,33 @@ import { getReceipts } from "@/lib/receipts";
 import { getOverReceipts } from "@/lib/over-receipts";
 import { ReceiptsTable } from "@/components/recon/receipts-table";
 import { DownloadButton } from "@/app/procurement/approver/download-button";
+import { FetchStatus } from "./fetch-status";
+import { ManualImport } from "./manual-import";
 
 /**
- * The GRN register, read-only.
+ * The GRN register — one screen, not two.
  *
- * Separate from /procurement/grn, which is the PO team's import screen: the
- * roles that review what arrived are not the ones that load it, and putting an
- * import control in front of an approver invites a file being loaded by
- * whoever happens to be looking.
+ * There was a separate import screen, from when a person had to load the file.
+ * The mailbox fetch does that every five minutes now, so importing is no longer
+ * a task somebody comes here to do; it is a fallback for when the automation
+ * cannot, which is why it sits behind a disclosure rather than at the top.
  */
 export default async function ReceiptsPage() {
-  const profile = await requireRole("approver", "purchase_head", "md");
+  const profile = await requireRole("approver", "purchase_head", "md", "po_team");
 
   const receipts = await getReceipts();
   const over = await getOverReceipts();
+
+  // Writing is narrower than reading: the approver and MD review what arrived,
+  // they do not load it. RLS enforces this independently of the UI.
+  const canImport = ["po_team", "purchase_head", "admin"].includes(profile.role);
 
   const overValue = over.reduce((t, l) => t + (l.excessValue ?? 0), 0);
   const surplus = over.filter((l) => (l.vsRequired ?? 0) > 0).length;
 
   return (
     <AppShell profile={profile}>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
             GRN register
@@ -35,8 +41,8 @@ export default async function ReceiptsPage() {
             )}
           </h1>
           <p className="mt-1 max-w-3xl text-neutral-500">
-            What the register recorded as arriving, beside what each line was
-            ordered against. Read-only — importing is the PO team&apos;s.
+            What arrived, beside what each line was ordered against. Collected
+            automatically from the register emailed by the ERP.
           </p>
         </div>
         <DownloadButton
@@ -45,6 +51,8 @@ export default async function ReceiptsPage() {
           label="Download register"
         />
       </div>
+
+      <FetchStatus />
 
       {/* The money first: an excess is the reason to read the table, not
           something to be discovered inside it. */}
@@ -66,6 +74,8 @@ export default async function ReceiptsPage() {
       )}
 
       <ReceiptsTable rows={receipts} />
+
+      {canImport && <ManualImport />}
     </AppShell>
   );
 }

@@ -13,7 +13,7 @@ reaches them:
 
     uploader uploads sheet   -> purchase head
     purchase head assigns    -> each assigned buyer (their own items only)
-    buyer drafts a PO        -> PO team
+    buyer sends a PO         -> PO team, copied to the buyer
     PO document attached     -> approver
     approver escalates       -> the assigned buyer
     escalation breaches SLA  -> MD
@@ -301,11 +301,18 @@ class PoDrafted(BaseModel):
 def notify_po_drafted(
     payload: PoDrafted, user: CurrentUser = Depends(get_current_user)
 ):
-    """Buyer raised a PO draft — tell the PO team to prepare the document."""
+    """Buyer sent a PO — tell the PO team, and confirm it back to the buyer.
+
+    The buyer is copied because sending is the point they hand the order over
+    and stop being able to edit it. A confirmation naming the supplier and
+    quantity is how a mistake — the wrong supplier, a quantity typed twice — is
+    caught while it can still be corrected by the PO team rather than after the
+    document is signed.
+    """
     require_roles(user, "buyer")
     po = (
         user.client.table("po")
-        .select("id, rm_sheet_id")
+        .select("id, rm_sheet_id, created_by, po_number, etd, site")
         .eq("id", payload.po_id)
         .limit(1)
         .execute()
@@ -318,24 +325,55 @@ def notify_po_drafted(
 
     lines = (
         user.client.table("po_line")
-        .select("ordered_qty")
+        .select("ordered_qty, supplier")
         .eq("po_id", payload.po_id)
         .execute()
     ).data or []
     total = sum(float(l.get("ordered_qty") or 0) for l in lines)
+    suppliers = sorted({(l.get("supplier") or "").strip() for l in lines} - {""})
+    supplier = ", ".join(suppliers) if suppliers else "no supplier set"
 
-    body = (
-        f"<p>A buyer has drafted a purchase order on <strong>{ref}</strong>.</p>"
-        f"<p>{len(lines):,} line(s), {total:,.0f} total quantity.</p>"
-        "<p>Confirm the quantities against the signed PO, then attach the "
-        "document.</p>"
-        + _button(app_url(f"/procurement/po-team/{sheet_id}"), "Open PO team")
+    row = po.data[0]
+    detail = (
+        f"<p><strong>{html.escape(supplier)}</strong> — {len(lines):,} line(s), "
+        f"{total:,.0f} total quantity.</p>"
+        f"<p>ETD {html.escape(str(row.get('etd') or 'not set'))} · "
+        f"deliver to {html.escape(str(row.get('site') or 'not set'))}</p>"
     )
-    return send_email(
+
+    to_team = send_email(
         emails_with_role(user.client, "po_team"),
-        f"New PO draft to process — {sheet.get('style_ref') or sheet_id[:8]}",
-        body,
+        f"New PO to process — {supplier} · {sheet.get('style_ref') or sheet_id[:8]}",
+        f"<p>A buyer has sent a purchase order on <strong>{ref}</strong>.</p>"
+        + detail
+        + "<p>Confirm the quantities against the signed PO, then attach the "
+        "document.</p>"
+        + _button(app_url(f"/procurement/po-team/{sheet_id}"), "Open PO team"),
     )
+
+    # Copied to the buyer, and never allowed to fail the handover: the PO team
+    # has already been told, and that is the notification the workflow depends
+    # on.
+    to_buyer: dict[str, Any] = {"sent": False, "skipped": True, "reason": "no buyer"}
+    buyer_email = email_of(user.client, row["created_by"]) if row.get("created_by") else None
+    if buyer_email:
+        try:
+            to_buyer = send_email(
+                [buyer_email],
+                f"Your PO is with the PO team — {supplier}",
+                f"<p>Your purchase order on <strong>{ref}</strong> has been sent "
+                "to the PO team, who will attach the signed document.</p>"
+                + detail
+                + "<p>It can no longer be edited here. If something is wrong, "
+                "tell the PO team before the document is attached.</p>"
+                + _button(
+                    app_url(f"/procurement/buyer/{sheet_id}"), "Open your sheet"
+                ),
+            )
+        except Exception as e:
+            to_buyer = {"sent": False, "error": str(e)}
+
+    return {"po_team": to_team, "buyer": to_buyer, **to_team}
 
 
 @router.post("/md-escalations")

@@ -7,6 +7,7 @@ import { fetchAll } from "@/lib/supabase/fetch-all";
 import { type ReconRow } from "@/lib/reconciliation";
 import { ReconTabs } from "@/components/recon/recon-tabs";
 import { submitMdDecision } from "../actions";
+import { formatDateTime } from "@/lib/format";
 
 export default async function MdSheetDetailPage({
   params,
@@ -68,7 +69,7 @@ export default async function MdSheetDetailPage({
             MD Review: {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Uploaded on {new Date(sheet.created_at).toLocaleString()} • {poCount ?? 0} PO document(s) generated
+            Uploaded on {formatDateTime(sheet.created_at)} • {poCount ?? 0} PO document(s) generated
           </p>
         </div>
         <div className="flex items-center gap-2">
