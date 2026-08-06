@@ -1,43 +1,43 @@
--- Clear the transactional data and start fresh.
+-- Empty the database, keeping only the logins.
 --
--- ⚠️  IRREVERSIBLE. There is no undo and no backup taken by this script.
---     Run it in the Supabase SQL Editor, which connects as the table owner and
---     is not subject to RLS — so it deletes regardless of the admin-only
---     policies the application enforces.
+-- ⚠️  IRREVERSIBLE. No undo, no backup taken by this script. Run it in the
+--     Supabase SQL Editor, which connects as the table owner and is not
+--     subject to RLS — so it deletes regardless of the admin-only policies the
+--     application enforces.
 --
--- WHAT THIS DELETES
---   rm_sheet, rm_requirement   the uploaded sheets and their lines
+-- WHAT THIS DELETES — everything except the accounts:
+--   rm_sheet, rm_requirement   uploaded sheets and their lines
 --   po, po_line                every purchase order, draft or sent
---   approval, escalation       approvals and escalations raised against them
+--   approval, escalation       approvals and escalations
 --   grn, grn_mail              goods received, and the mail-fetch history
 --   audit_log                  the activity trail
+--   uom_conversion             unit conversions
+--   item_master                THE ITEM MASTER — around 12,000 rows. Uploading
+--                              a sheet afterwards will match nothing until it
+--                              is imported again from Admin → Item Master.
 --
--- WHAT THIS KEEPS
---   item_master                12,319 catalogue items — re-importing these is
---                              slow and they are not test data
---   uom_conversion             unit conversions, same reasoning
---   profiles + auth.users      every account, including the demo logins. Data
---                              referencing them is cleared below, so nothing
---                              needs the accounts removed as well.
+-- WHAT THIS KEEPS:
+--   profiles + auth.users      every login and its role. Deleting these locks
+--                              you out of the application with no way back in
+--                              from the app itself.
 --
--- A table that does not exist yet is skipped rather than fatal: the GRN tables
--- arrive with later migrations, and an earlier version of this script aborted
--- part-way through on a database where they had not been applied.
---
--- Order matters — children before parents, or foreign keys reject the delete —
--- and the whole thing runs as one statement, so a failure leaves the database
--- exactly as it was rather than half-emptied.
+-- A table that does not exist yet is skipped rather than fatal, so this works
+-- whatever subset of migrations has been applied. Deletion order is
+-- children-before-parents; the whole thing runs as one statement, so a failure
+-- leaves the database as it was rather than half-emptied.
 
 do $$
 declare
-  -- Deletion order. audit_log is last: it references everything above, so any
-  -- earlier delete would have been recorded in it as it went.
+  -- Order matters. item_master is last of all: rm_requirement, po_line and
+  -- uom_conversion all reference it, so it cannot go until they have.
+  -- audit_log sits just before, since everything above is recorded in it.
   targets text[] := array[
     'grn_mail', 'grn',
     'approval', 'escalation',
     'po_line', 'po',
     'rm_requirement', 'rm_sheet',
-    'audit_log'
+    'audit_log',
+    'uom_conversion', 'item_master'
   ];
   t text;
   n bigint;
@@ -79,7 +79,7 @@ select t as table_name,
        n as rows,
        case
          when n is null then 'n/a'
-         when t in ('item_master', 'uom_conversion', 'profiles') then 'kept'
+         when t = 'profiles' then 'kept — your logins'
          when n = 0 then 'cleared'
          else 'STILL HAS ROWS'
        end as result
@@ -88,30 +88,23 @@ order by t;
 
 
 -- ─────────────────────────────────────────────────────────────────────────
--- OPTIONAL — only if you also want the catalogue gone.
+-- If you wanted to KEEP the item master, you needed this instead — it is
+-- ~12,000 rows and slow to re-import, and nothing about it is test data:
 --
--- rm_requirement.item_code and po_line.item_code both reference item_master,
--- so this must come after the deletes above. Re-importing 12,319 items takes
--- far longer than clearing them did, so this is deliberately not part of the
--- script proper.
---
---   begin;
---   delete from public.uom_conversion;
---   delete from public.item_master;
---   commit;
+--   remove 'uom_conversion', 'item_master' from the targets array above.
 -- ─────────────────────────────────────────────────────────────────────────
 
 
 -- ─────────────────────────────────────────────────────────────────────────
--- OPTIONAL — only if you want every login except the admins removed.
+-- OPTIONAL — only if you also want every login except the admins removed.
 --
 -- Run AFTER the deletes above: rm_sheet.uploaded_by, po.created_by,
 -- rm_requirement.assigned_buyer and audit_log.actor_id all reference these
 -- accounts, and none of it can go while those rows still exist.
 --
 -- The guard is not decoration. Deleting every account locks you out of the
--- application with no way back in from the app itself, so the block refuses to
--- run rather than leaving you to discover it at the login screen.
+-- application with no way back in from the app, which is not something to
+-- discover at the login screen.
 --
 --   do $$
 --   begin
