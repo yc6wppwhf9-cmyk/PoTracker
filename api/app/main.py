@@ -1,4 +1,5 @@
 import logging
+import os
 import traceback
 
 from fastapi import FastAPI, Request
@@ -96,6 +97,10 @@ def health():
     s = get_settings()
     out = {
         "status": "ok",
+        # Which commit is actually serving. Render sets RENDER_GIT_COMMIT on
+        # every deploy; without it there is no way to tell a deployed fix from
+        # one still building, which turns "is it live yet?" into guesswork.
+        "commit": (os.getenv("RENDER_GIT_COMMIT") or "unknown")[:7],
         "email_configured": bool(s.resend_api_key),
         "email_from": s.resend_from,
         "test_mode_redirect": bool(s.notify_override_to),
