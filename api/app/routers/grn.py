@@ -70,6 +70,7 @@ def import_grn_register(
 
     inserted, grc_numbers = _store(user, rows)
     matched = _match_summary(user, rows)
+    over = _over_receipts(user, rows)
 
     user.client.table("audit_log").insert(
         {
@@ -92,6 +93,7 @@ def import_grn_register(
         "merged_duplicate_lines": parsed["merged"],
         "skipped_no_grc": parsed["skipped_no_grc"],
         "skipped_no_qty": parsed["skipped_no_qty"],
+        "over_received": over,
         **matched,
     }
 
@@ -306,3 +308,88 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             pass
 
     return {"checked": len(messages), "imported": imported_total, "results": results}
+
+
+def _over_receipts(user: Any, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Lines where more has now arrived than the PO ordered.
+
+    Reported at import because this is the moment it becomes true, and the
+    person importing is the one who can query the invoice. Waiting for someone
+    to open the approver dashboard means the first sight of it is often after
+    the invoice has been passed for payment.
+
+    Only the PO numbers in this file are examined — a full sweep would re-report
+    every historic excess on every import.
+    """
+    po_numbers = sorted({r["po_number"] for r in rows if r.get("po_number")})
+    if not po_numbers:
+        return {"lines": 0, "examples": []}
+
+    ordered: dict[tuple[str, str, str], float] = {}
+    for i in range(0, len(po_numbers), 100):
+        chunk = po_numbers[i : i + 100]
+        pos = (
+            user.client.table("po")
+            .select("po_number, po_line(item_code, lot, ordered_qty)")
+            .in_("po_number", chunk)
+            .neq("status", "draft")
+            .execute()
+        ).data or []
+        for p in pos:
+            for line in p.get("po_line") or []:
+                if not line.get("item_code"):
+                    continue
+                key = (
+                    str(p["po_number"]).upper(),
+                    str(line["item_code"]).upper(),
+                    line.get("lot") or "",
+                )
+                ordered[key] = ordered.get(key, 0.0) + float(line.get("ordered_qty") or 0)
+
+    if not ordered:
+        return {"lines": 0, "examples": []}
+
+    # Received is summed from the stored table, not from this file: an earlier
+    # delivery against the same line counts towards the excess.
+    received: dict[tuple[str, str, str], float] = {}
+    for i in range(0, len(po_numbers), 100):
+        chunk = po_numbers[i : i + 100]
+        got = fetch_all(
+            lambda c=chunk: user.client.table("grn")
+            .select("po_number, item_code, lot, qty")
+            .in_("po_number", c),
+            order_by="id",
+        )
+        for g in got:
+            if not g.get("item_code"):
+                continue
+            key = (
+                str(g["po_number"]).upper(),
+                str(g["item_code"]).upper(),
+                g.get("lot") or "",
+            )
+            received[key] = received.get(key, 0.0) + float(g.get("qty") or 0)
+
+    # 2% matches the dashboard: deliveries are rarely exact, and flagging every
+    # rounding difference would train people to ignore the list.
+    examples = []
+    count = 0
+    for key, qty in received.items():
+        want = ordered.get(key)
+        if not want or want <= 0:
+            continue
+        if qty > want * 1.02:
+            count += 1
+            if len(examples) < 5:
+                examples.append(
+                    {
+                        "po_number": key[0],
+                        "item_code": key[1],
+                        "lot": key[2] or None,
+                        "ordered": want,
+                        "received": qty,
+                        "excess": round(qty - want, 3),
+                    }
+                )
+
+    return {"lines": count, "examples": examples}

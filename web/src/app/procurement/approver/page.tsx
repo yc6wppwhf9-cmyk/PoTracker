@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { getPendingPos } from "@/lib/pending-pos";
 import { PendingPos } from "./pending-pos";
+import { getOverReceipts } from "@/lib/over-receipts";
+import { OverReceipts } from "./over-receipts";
 
 export default async function ApproverList() {
   const profile = await requireRole("approver");
@@ -17,6 +19,10 @@ export default async function ApproverList() {
   // Overdue purchase orders, derived from the GRN register rather than a
   // stored status, so the list cannot drift out of step with what has arrived.
   const pending = await getPendingPos();
+
+  // The mirror case: goods that arrived in excess of the order. Nothing
+  // earlier in the chain can catch it — at PO time the numbers were right.
+  const overReceipts = await getOverReceipts();
 
   return (
     <AppShell profile={profile}>
@@ -40,6 +46,22 @@ export default async function ApproverList() {
           imported GRN register.
         </p>
         <PendingPos pos={pending} />
+      </div>
+
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold tracking-tight">
+          Over-received
+          {overReceipts.length > 0 && (
+            <span className="ml-2 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+              {overReceipts.length}
+            </span>
+          )}
+        </h2>
+        <p className="mb-3 mt-1 text-sm text-neutral-500">
+          More material arrived than the purchase order asked for. The order may
+          have been correct — this is what the supplier actually delivered.
+        </p>
+        <OverReceipts lines={overReceipts} />
       </div>
 
       <h2 className="mt-10 text-lg font-semibold tracking-tight">Sheets</h2>

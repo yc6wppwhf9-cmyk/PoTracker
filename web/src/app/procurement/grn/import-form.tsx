@@ -17,6 +17,17 @@ type ImportResult = {
     lines_without_po_number: number;
   };
   unmatched_po_numbers?: string[];
+  over_received?: {
+    lines: number;
+    examples: {
+      po_number: string;
+      item_code: string;
+      lot: string | null;
+      ordered: number;
+      received: number;
+      excess: number;
+    }[];
+  };
 };
 
 export function GrnImportForm() {
@@ -103,6 +114,33 @@ export function GrnImportForm() {
                 </li>
               )}
             </ul>
+          )}
+
+          {/* Surfaced here because this is the moment it becomes true, and the
+              person importing is the one who can query the invoice. */}
+          {result.over_received && result.over_received.lines > 0 && (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs dark:border-rose-900 dark:bg-rose-950/40">
+              <p className="font-semibold text-rose-800 dark:text-rose-300">
+                {result.over_received.lines} line(s) have now received more than
+                the PO ordered.
+              </p>
+              <ul className="mt-1 space-y-0.5 text-rose-700 dark:text-rose-400">
+                {result.over_received.examples.map((e, i) => (
+                  <li key={`${e.po_number}-${e.item_code}-${i}`}>
+                    <span className="font-mono">{e.po_number}</span> ·{" "}
+                    <span className="font-mono">{e.item_code}</span>
+                    {e.lot ? ` · ${e.lot}` : ""} — ordered{" "}
+                    {e.ordered.toLocaleString()}, received{" "}
+                    {e.received.toLocaleString()} (
+                    <strong>+{e.excess.toLocaleString()}</strong>)
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-rose-600 dark:text-rose-400">
+                The full list, with values and which delivery pushed each line
+                over, is on the approver dashboard.
+              </p>
+            </div>
           )}
 
           {/* Skips are reported rather than silent: an unnoticed skip is a
