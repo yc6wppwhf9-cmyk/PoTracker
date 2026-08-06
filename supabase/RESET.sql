@@ -17,47 +17,74 @@
 --                              slow and they are not test data
 --   uom_conversion             unit conversions, same reasoning
 --   profiles + auth.users      every account, including the demo logins. Data
---                              referencing them is cleared above, so nothing
+--                              referencing them is cleared below, so nothing
 --                              needs the accounts removed as well.
 --
--- Order matters: children before parents, or foreign keys reject the delete.
--- Wrapped in a transaction, so a failure part-way leaves the database exactly
--- as it was rather than half-emptied.
+-- A table that does not exist yet is skipped rather than fatal: the GRN tables
+-- arrive with later migrations, and an earlier version of this script aborted
+-- part-way through on a database where they had not been applied.
+--
+-- Order matters — children before parents, or foreign keys reject the delete —
+-- and the whole thing runs as one statement, so a failure leaves the database
+-- exactly as it was rather than half-emptied.
 
-begin;
+do $$
+declare
+  -- Deletion order. audit_log is last: it references everything above, so any
+  -- earlier delete would have been recorded in it as it went.
+  targets text[] := array[
+    'grn_mail', 'grn',
+    'approval', 'escalation',
+    'po_line', 'po',
+    'rm_requirement', 'rm_sheet',
+    'audit_log'
+  ];
+  t text;
+  n bigint;
+begin
+  foreach t in array targets loop
+    if to_regclass('public.' || t) is null then
+      raise notice 'skipped %  (table does not exist)', t;
+      continue;
+    end if;
+    execute format('delete from public.%I', t);
+    get diagnostics n = row_count;
+    raise notice 'cleared % rows from %', n, t;
+  end loop;
+end $$;
 
-delete from public.grn_mail;
-delete from public.grn;
 
-delete from public.approval;
-delete from public.escalation;
+-- Confirm. Counted the same way, so a table added by a later migration is
+-- reported rather than breaking the query.
+create temp table if not exists _reset_counts (t text, n bigint) on commit drop;
+truncate _reset_counts;
 
-delete from public.po_line;
-delete from public.po;
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'rm_sheet', 'rm_requirement', 'po', 'po_line', 'approval', 'escalation',
+    'grn', 'grn_mail', 'audit_log', 'item_master', 'uom_conversion', 'profiles'
+  ] loop
+    if to_regclass('public.' || t) is null then
+      insert into _reset_counts values (t || '  (not created yet)', null);
+    else
+      execute format('insert into _reset_counts select %L, count(*) from public.%I', t, t);
+    end if;
+  end loop;
+end $$;
 
-delete from public.rm_requirement;
-delete from public.rm_sheet;
-
--- Last: it references everything above, so anything earlier would have been
--- recorded here as it went.
-delete from public.audit_log;
-
-commit;
-
--- Confirm. Every count should be 0 except the two catalogues and profiles.
-select 'rm_sheet' as t, count(*) from public.rm_sheet
-union all select 'rm_requirement', count(*) from public.rm_requirement
-union all select 'po',             count(*) from public.po
-union all select 'po_line',        count(*) from public.po_line
-union all select 'approval',       count(*) from public.approval
-union all select 'escalation',     count(*) from public.escalation
-union all select 'grn',            count(*) from public.grn
-union all select 'grn_mail',       count(*) from public.grn_mail
-union all select 'audit_log',      count(*) from public.audit_log
-union all select 'item_master (kept)',    count(*) from public.item_master
-union all select 'uom_conversion (kept)', count(*) from public.uom_conversion
-union all select 'profiles (kept)',       count(*) from public.profiles
-order by 1;
+select t as table_name,
+       n as rows,
+       case
+         when n is null then 'n/a'
+         when t in ('item_master', 'uom_conversion', 'profiles') then 'kept'
+         when n = 0 then 'cleared'
+         else 'STILL HAS ROWS'
+       end as result
+from _reset_counts
+order by t;
 
 
 -- ─────────────────────────────────────────────────────────────────────────
