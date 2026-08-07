@@ -12,7 +12,28 @@ export type AssignedItem = {
   name: string;
   category: string;
   required_qty: number;
+  /** Already on a PO that has been sent. */
+  ordered_qty: number;
+  /** Already on a draft PO, sent or not. Counts against the requirement here
+   *  even though reconciliation excludes it: the buyer must not allocate the
+   *  same material twice just because they have not pressed send yet. */
+  drafted_qty: number;
 };
+
+/**
+ * What is left to buy on a line.
+ *
+ * The form used to open with every line pre-filled to its FULL requirement,
+ * however much had already been ordered — so a buyer who raised a PO for half
+ * a lot, then came back for the rest, was handed the whole quantity again. Two
+ * POs for 1,960 against a requirement of 3,920 is exactly what that produced.
+ */
+export function outstanding(it: AssignedItem): number {
+  return Math.max(
+    0,
+    it.required_qty - (it.ordered_qty ?? 0) - (it.drafted_qty ?? 0)
+  );
+}
 
 const initial: CreatePoState = { error: null, poId: null };
 
@@ -53,13 +74,14 @@ export function PoForm({
   items: AssignedItem[];
 }) {
   const router = useRouter();
+  const [hideDone, setHideDone] = useState(true);
 
   const [allocs, setAllocs] = useState<Alloc[]>(() =>
     items.map((it) => ({
       id: newId(),
       itemKey: keyOf(it),
       include: false,
-      ordered: it.required_qty,
+      ordered: outstanding(it),
       supplier: "",
       rate: "",
       remark: "",
@@ -175,7 +197,7 @@ export function PoForm({
       // Default the new allocation to whatever is still unallocated, so the
       // common case — split the remainder to a second supplier — needs no
       // arithmetic from the buyer.
-      const remaining = Math.max(0, it.required_qty - taken);
+      const remaining = Math.max(0, outstanding(it) - taken);
       const next: Alloc = {
         id: newId(),
         itemKey,
@@ -206,11 +228,32 @@ export function PoForm({
   const inputBase =
     "rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950";
 
+  // A line fully covered by existing POs has nothing left to buy. It is not
+  // deleted — the buyer may want to see what a sheet contained, and a line
+  // vanishing without explanation is its own confusion — but it is hidden by
+  // default so a sheet of thousands shows only the work remaining.
+  const done = items.filter((it) => outstanding(it) <= 0).length;
+  const visibleItems = hideDone
+    ? items.filter((it) => outstanding(it) > 0)
+    : items;
+
   return (
     <>
       <form action={formAction} id="po-form">
         <input type="hidden" name="sheet_id" value={sheetId} />
         <input type="hidden" name="lines" value={JSON.stringify(payload)} />
+
+        {done > 0 && (
+          <label className="mb-2 flex items-center gap-2 text-xs text-neutral-500">
+            <input
+              type="checkbox"
+              checked={hideDone}
+              onChange={(e) => setHideDone(e.target.checked)}
+              className="size-4 accent-indigo-600"
+            />
+            Hide {done} line(s) already fully ordered
+          </label>
+        )}
 
         {/* The row is wider than most screens, so the two columns that say
             WHICH material this is are pinned; scrolled right without them a
@@ -221,7 +264,7 @@ export function PoForm({
               <tr>
                 <th className={`${thBase} sticky left-0 z-30`}></th>
                 <th className={`${thBase} sticky left-10 z-30 border-r`}>Item</th>
-                {["Lot", "Category", "Required", "Order qty", "Supplier",
+                {["Lot", "Category", "To buy", "Order qty", "Supplier",
                   "ETD", "Delivery site", "Rate", "Value", "Purchase remark",
                   ""].map((h, i) => (
                   <th key={h || `blank${i}`} className={thBase}>
@@ -231,13 +274,17 @@ export function PoForm({
               </tr>
             </thead>
             <tbody>
-              {items.map((it) => {
+              {visibleItems.map((it) => {
                 const k = keyOf(it);
                 const group = byItem.get(k) ?? [];
                 const allocated = allocatedFor(k);
                 const anyIncluded = group.some((a) => a.include);
-                const over = anyIncluded && allocated > it.required_qty;
-                const under = anyIncluded && allocated < it.required_qty;
+                // Judged against what is still outstanding, not the original
+                // requirement — otherwise topping up the last 1,960 of a 3,920
+                // line reads as a 50% under-order.
+                const left = outstanding(it);
+                const over = anyIncluded && allocated > left;
+                const under = anyIncluded && allocated < left;
 
                 return group.map((a, idx) => {
                   const first = idx === 0;
@@ -301,7 +348,20 @@ export function PoForm({
                         {first ? it.category : ""}
                       </td>
                       <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-500`}>
-                        {first ? it.required_qty.toLocaleString() : ""}
+                        {first ? outstanding(it).toLocaleString() : ""}
+                        {/* What has already been committed, so a line that
+                            looks small is explained rather than surprising. */}
+                        {first &&
+                          (it.ordered_qty > 0 || it.drafted_qty > 0) && (
+                            <div className="text-[11px] font-normal text-neutral-400">
+                              of {it.required_qty.toLocaleString()} ·{" "}
+                              {it.ordered_qty > 0 &&
+                                `${it.ordered_qty.toLocaleString()} ordered`}
+                              {it.ordered_qty > 0 && it.drafted_qty > 0 && " · "}
+                              {it.drafted_qty > 0 &&
+                                `${it.drafted_qty.toLocaleString()} pending`}
+                            </div>
+                          )}
                         {first && group.length > 1 && anyIncluded && (
                           <div
                             className={`text-[11px] ${

@@ -77,6 +77,31 @@ export default async function BuyerSheetPage({
       .range(from, to)
   );
 
+  // What is already on a PO for this sheet, per (item_code, lot, plant).
+  //
+  // Without this the form re-offers the full requirement on every visit, and a
+  // buyer topping up half a lot orders the whole thing again. Drafts count
+  // here even though reconciliation excludes them: an unsent draft commits
+  // nobody downstream, but it is still material this buyer has allocated and
+  // must not allocate twice.
+  const covered = await fetchAll((from, to) =>
+    supabase
+      .from("reconciliation")
+      .select("item_code, lot, location, ordered, drafted")
+      .eq("rm_sheet_id", sheetId)
+      .order("item_code")
+      .order("lot")
+      .order("location")
+      .range(from, to)
+  );
+  const coveredBy = new Map<string, { ordered: number; drafted: number }>();
+  for (const c of covered) {
+    coveredBy.set(
+      `${c.item_code}__${c.lot ?? ""}__${c.location ?? ""}`,
+      { ordered: Number(c.ordered) || 0, drafted: Number(c.drafted) || 0 }
+    );
+  }
+
   // Aggregate per (item_code, lot, plant) — each is a separate orderable line so
   // a PO is traceable to its lot and plant.
   const agg = new Map<string, AssignedItem>();
@@ -97,6 +122,8 @@ export default async function BuyerSheetPage({
         name: im?.name ?? code,
         category: im?.category ?? "—",
         required_qty: 0,
+        ordered_qty: coveredBy.get(key)?.ordered ?? 0,
+        drafted_qty: coveredBy.get(key)?.drafted ?? 0,
       } as AssignedItem);
     cur.required_qty += Number(l.required_qty) || 0;
     agg.set(key, cur);
