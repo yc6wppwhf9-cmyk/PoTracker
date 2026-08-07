@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { RoleSelect } from "./role-select";
+import { NewUserForm } from "./new-user-form";
 
 export default async function AdminUsersPage() {
   const profile = await requireRole("admin");
@@ -16,11 +17,14 @@ export default async function AdminUsersPage() {
     <AppShell profile={profile}>
       <h1 className="text-2xl font-semibold tracking-tight">Users &amp; roles</h1>
       <p className="mt-1 text-neutral-500">
-        Assign each person their workflow role. New sign-ups start as{" "}
-        <strong>Uploader</strong>.
+        Create a login and assign each person their workflow role.
       </p>
 
-      <div className="mt-6 overflow-x-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
+      <div className="mt-6">
+        <NewUserForm />
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
         <table className="w-full text-sm">
           <thead className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-white/10">
             <tr>

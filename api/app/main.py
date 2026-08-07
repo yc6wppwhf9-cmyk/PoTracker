@@ -7,7 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.routers import ai, exports, grn, item_master, notify, pos, rm_sheets
+from app.routers import (
+    admin_users,
+    ai,
+    exports,
+    grn,
+    item_master,
+    notify,
+    pos,
+    rm_sheets,
+)
 
 log = logging.getLogger("uvicorn.error")
 
@@ -67,6 +76,7 @@ app.include_router(ai.router)
 app.include_router(exports.router)
 app.include_router(notify.router)
 app.include_router(grn.router)
+app.include_router(admin_users.router)
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -105,6 +115,8 @@ def health():
         "email_from": s.resend_from,
         "test_mode_redirect": bool(s.notify_override_to),
         "anthropic_configured": bool(s.anthropic_api_key),
+        # Whether an admin can create a login from the app. Boolean only.
+        "user_creation_configured": bool(s.supabase_service_role_key),
         "app_url": s.app_url,
         # Whether the scheduled GRN fetch can run at all. Booleans only: this
         # endpoint is unauthenticated, and the point is to answer "is it set

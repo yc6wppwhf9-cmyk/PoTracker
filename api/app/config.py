@@ -36,6 +36,12 @@ class Settings:
     supabase_url: str = env("SUPABASE_URL")
     supabase_anon_key: str = env("SUPABASE_ANON_KEY")
     anthropic_api_key: str = env("ANTHROPIC_API_KEY")
+    # Creating a login is the one thing RLS cannot do: GoTrue has no policy
+    # system, so an account can only be added with this key or by enabling
+    # public sign-up. It lives HERE and nowhere else — never in the web app,
+    # never in a browser — and is used for exactly one call, behind an
+    # admin-only endpoint. See app/routers/admin_users.py.
+    supabase_service_role_key: str = env("SUPABASE_SERVICE_ROLE_KEY")
     # Transactional email. Absent key => notifications are skipped, never fatal.
     resend_api_key: str = env("RESEND_API_KEY")
     resend_from: str = env("RESEND_FROM", "Procurement <onboarding@resend.dev>")
