@@ -84,11 +84,33 @@ class Settings:
     # Optional extra filter, e.g. "grc register".
     grn_subject_contains: str = env("GRN_SUBJECT_CONTAINS")
 
+    # Whether to accept requests from any *.vercel.app preview deployment.
+    # That regex trusts every Vercel account on the internet, not just this
+    # one, so it stays off unless somebody is deliberately testing a preview.
+    allow_vercel_previews: bool = env("ALLOW_VERCEL_PREVIEWS").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
     allowed_origins: list[str] = [
         o.strip().rstrip("/")
         for o in env("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
         if o.strip()
     ]
+
+    def __init__(self) -> None:
+        # The site's own origin is always allowed, whether or not anyone
+        # remembered to list it.
+        #
+        # APP_URL is where notification links point, so it IS the app. Deriving
+        # the allowance from it means dropping the wildcard preview regex
+        # cannot take the site down because ALLOWED_ORIGINS was never set --
+        # which is a failure mode that appears only in production, as a CORS
+        # error blamed on the browser.
+        origin = self.app_url.rstrip("/")
+        if origin.startswith(("http://", "https://")) and origin not in self.allowed_origins:
+            self.allowed_origins = [*self.allowed_origins, origin]
 
     def require(self) -> None:
         missing = [

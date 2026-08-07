@@ -14,7 +14,12 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-ORIGIN = "https://po-tracker-lake.vercel.app"
+from app.config import get_settings
+
+# The app's own origin, taken from configuration rather than hard-coded: the
+# wildcard *.vercel.app allowance is now opt-in, so a literal preview URL would
+# be refused here and the test would be asserting the wrong thing.
+ORIGIN = get_settings().allowed_origins[0]
 
 
 @app.get("/__test_boom")
@@ -64,3 +69,15 @@ def test_preflight_is_answered():
     )
     assert r.status_code == 200
     assert r.headers.get("access-control-allow-origin") == ORIGIN
+
+
+def test_an_unlisted_origin_is_refused():
+    """The point of dropping the *.vercel.app wildcard.
+
+    That regex matched every Vercel account on the internet, not only this
+    one — anybody can deploy there and get an origin that satisfies it.
+    """
+    r = client.get(
+        "/__test_fine", headers={"Origin": "https://someone-elses-app.vercel.app"}
+    )
+    assert r.headers.get("access-control-allow-origin") is None

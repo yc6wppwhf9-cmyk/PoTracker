@@ -60,10 +60,18 @@ async def surface_errors_with_cors(request: Request, call_next):
 
 # Added last, so it wraps the handler above and every response — including the
 # error responses it produces.
+#
+# The preview-deployment regex is opt-in via ALLOW_VERCEL_PREVIEWS. It used to
+# be unconditional, and `https://.*\.vercel\.app` trusts every Vercel account
+# on the internet, not only this one — anybody can deploy there and get a
+# matching origin. With a real domain configured that allowance buys nothing,
+# so it is off unless somebody asks for it while testing a preview build.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=(
+        r"https://[a-z0-9-]+\.vercel\.app" if settings.allow_vercel_previews else None
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,6 +126,11 @@ def health():
         # Whether an admin can create a login from the app. Boolean only.
         "user_creation_configured": bool(s.supabase_service_role_key),
         "app_url": s.app_url,
+        # Not secret, and the cause of every "blocked by CORS" report: the
+        # browser names the origin it sent, and this is the list it is
+        # checked against.
+        "allowed_origins": s.allowed_origins,
+        "vercel_previews_allowed": s.allow_vercel_previews,
         # Whether the scheduled GRN fetch can run at all. Booleans only: this
         # endpoint is unauthenticated, and the point is to answer "is it set
         # up?" without anyone pasting a secret somewhere to find out.
