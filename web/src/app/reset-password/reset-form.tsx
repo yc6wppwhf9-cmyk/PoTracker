@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { setNewPassword, type ResetState } from "./actions";
 
@@ -8,15 +8,18 @@ const initial: ResetState = { error: null };
 
 export function ResetForm() {
   const [state, formAction, pending] = useActionState(setNewPassword, initial);
-  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     // A recovery link in the implicit flow puts the tokens in the URL
-    // FRAGMENT, which is never sent to the server — so the page renders with
-    // no session and the form would fail on submit. supabase-js reads the
-    // fragment on the client and stores the session; this waits for that, then
-    // clears the fragment so the tokens do not sit in the address bar or in
-    // whatever the browser syncs.
+    // FRAGMENT, which the server never sees. supabase-js reads it on the
+    // client and stores the session; this only clears the fragment afterwards
+    // so the tokens do not sit in the address bar.
+    //
+    // The form no longer waits for this. It used to render "Checking link…"
+    // until the promise resolved, which meant any failure to reach Supabase —
+    // or simply a blocked request — left the page with no form at all and
+    // nothing to say why. The session now comes from /auth/callback before
+    // this page renders, so there is nothing to wait for.
     const supabase = createClient();
     supabase.auth.getSession().then(({ data }) => {
       if (data.session && window.location.hash) {
@@ -26,19 +29,15 @@ export function ResetForm() {
           window.location.pathname + window.location.search
         );
       }
-      setReady(true);
     });
   }, []);
-
-  if (!ready)
-    return <p className="mt-6 text-sm text-neutral-400">Checking link…</p>;
 
   return (
     <form action={formAction} className="mt-6 space-y-4">
       <Field label="New password" name="password" autoFocus />
       <Field label="Confirm new password" name="confirm" />
 
-      <p className="text-xs text-neutral-500">At least 10 characters.</p>
+      <p className="text-xs text-neutral-500">At least 8 characters.</p>
 
       {state.error && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">

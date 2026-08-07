@@ -86,11 +86,11 @@ export function NewUserForm() {
             <input
               name="password"
               required
-              minLength={10}
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={FIELD}
-              placeholder="at least 10 characters"
+              placeholder="at least 8 characters"
             />
             <button
               type="button"

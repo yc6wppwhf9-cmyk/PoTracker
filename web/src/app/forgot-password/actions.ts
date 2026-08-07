@@ -40,9 +40,31 @@ export async function requestPasswordReset(
     redirectTo,
   });
 
-  // Logged, not shown. A misconfigured mailer is our problem to see and not
-  // the sender's to diagnose at a login screen.
   if (error) console.error("[forgot-password]", error.message);
+
+  // A rate limit IS shown, unlike every other failure here.
+  //
+  // Reporting success for an unknown address is deliberate — otherwise this
+  // form tells a stranger which company addresses exist. A rate limit says
+  // nothing about the address, only about how much mail the project has sent,
+  // so hiding it protects nobody and leaves the person waiting for a message
+  // that was never sent. That is exactly what happened: Supabase's built-in
+  // sender allows a couple of messages an hour across the whole project, and
+  // the third request returned over_email_send_rate_limit while this screen
+  // said the link was on its way.
+  const limited =
+    error &&
+    (/rate limit/i.test(error.message) ||
+      (error as { code?: string }).code === "over_email_send_rate_limit" ||
+      (error as { status?: number }).status === 429);
+
+  if (limited)
+    return {
+      error:
+        "Too many reset emails have been sent recently. Wait an hour and try " +
+        "again, or ask an administrator to set your password directly.",
+      sent: false,
+    };
 
   return { error: null, sent: true };
 }

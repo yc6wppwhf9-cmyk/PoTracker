@@ -71,8 +71,8 @@ export async function createUser(
   const role = String(formData.get("role") ?? "uploader") as AppRole;
 
   if (!email) return { error: "Email is required.", ok: false, email: null };
-  if (password.length < 10)
-    return { error: "Use a password of at least 10 characters.", ok: false, email: null };
+  if (password.length < 8)
+    return { error: "Use a password of at least 8 characters.", ok: false, email: null };
   if (!ALL_ROLES.includes(role))
     return { error: "Invalid role.", ok: false, email: null };
 

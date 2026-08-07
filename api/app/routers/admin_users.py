@@ -36,9 +36,9 @@ class NewUser(BaseModel):
     # new runtime dependency for one field is a poor trade when GoTrue
     # validates the address anyway and returns a clear message.
     email: str = Field(min_length=3, max_length=254)
-    # Long enough to be worth having. The admin types this and passes it on, so
-    # it is a starting password, not a lasting one.
-    password: str = Field(min_length=10, max_length=200)
+    # 8, matching the reset screen. A starting password the admin types and
+    # passes on, not a lasting one.
+    password: str = Field(min_length=8, max_length=200)
     full_name: str = ""
     role: str = "uploader"
 

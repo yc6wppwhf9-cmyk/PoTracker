@@ -6,8 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 
 export type ResetState = { error: string | null };
 
-/** Long enough to be worth having; Supabase's own minimum is 6. */
-const MIN_LENGTH = 10;
+/** Set to 8 at the client's request. Supabase's own default minimum is 6, so
+ *  this is still stricter; keep it in step with Authentication → Policies,
+ *  or a password this screen refuses can still be set by another route. */
+const MIN_LENGTH = 8;
 
 /**
  * Set a new password for whoever the recovery link signed in.
