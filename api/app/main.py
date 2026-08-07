@@ -106,6 +106,30 @@ def health():
         "test_mode_redirect": bool(s.notify_override_to),
         "anthropic_configured": bool(s.anthropic_api_key),
         "app_url": s.app_url,
+        # Whether the scheduled GRN fetch can run at all. Booleans only: this
+        # endpoint is unauthenticated, and the point is to answer "is it set
+        # up?" without anyone pasting a secret somewhere to find out.
+        "grn_fetch": {
+            "ready": all(
+                [
+                    s.cron_secret,
+                    s.imap_user,
+                    s.imap_password,
+                    s.service_email,
+                    s.service_password,
+                ]
+            ),
+            "cron_secret": bool(s.cron_secret),
+            "imap_user": bool(s.imap_user),
+            "imap_password": bool(s.imap_password),
+            "service_account": bool(s.service_email and s.service_password),
+            "mailbox": s.imap_host,
+            "folder": s.imap_folder,
+            # Not a secret, and the commonest thing to get wrong — a sender
+            # that does not match means every message is skipped.
+            "allowed_senders": s.grn_allowed_senders,
+            "subject_filter": s.grn_subject_contains or None,
+        },
     }
     # Every link in every notification email is built from app_url. If it is
     # not absolute the links are silently unusable, and nothing else fails —
