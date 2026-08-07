@@ -21,6 +21,9 @@ export function ReceiptsTable({ rows }: { rows: ReceiptRow[] }) {
             <th className="px-4 py-3 text-right font-medium">Received</th>
             <th className="px-4 py-3 text-right font-medium">Excess</th>
             <th className="px-4 py-3 font-medium">Supplier</th>
+            {/* Who raised the order — the person to ask when a delivery is
+                short or over, rather than a PO number to look up first. */}
+            <th className="px-4 py-3 font-medium">Buyer</th>
           </tr>
         </thead>
         <tbody>
@@ -67,11 +70,14 @@ export function ReceiptsTable({ rows }: { rows: ReceiptRow[] }) {
               <td className="px-4 py-3 text-neutral-600 dark:text-neutral-300">
                 {r.supplier ?? "—"}
               </td>
+              <td className="px-4 py-3 whitespace-nowrap text-neutral-500">
+                {r.buyer ?? "—"}
+              </td>
             </tr>
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={10} className="px-4 py-8 text-center text-neutral-500">
+              <td colSpan={11} className="px-4 py-8 text-center text-neutral-500">
                 No receipts imported yet.
               </td>
             </tr>

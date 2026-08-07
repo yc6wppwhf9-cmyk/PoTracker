@@ -25,6 +25,9 @@ export type ReceiptRow = {
   /** received − ordered, once past tolerance. */
   excess: number | null;
   supplier: string | null;
+  /** The buyer who raised the PO — who to ask about a short or excess
+   *  delivery. Null when the PO number matches nothing here. */
+  buyer: string | null;
 };
 
 /**
@@ -57,13 +60,32 @@ export async function getReceipts(limit = 200): Promise<ReceiptRow[]> {
 
   const orderedBy = new Map<string, number>();
   const receivedBy = new Map<string, number>();
+  const buyerByPo = new Map<string, string | null>();
 
   if (poNumbers.length > 0) {
     const { data: pos } = await supabase
       .from("po")
-      .select("po_number, po_line(item_code, ordered_qty)")
+      .select("po_number, created_by, po_line(item_code, ordered_qty)")
       .in("po_number", poNumbers)
       .neq("status", "draft");
+
+    // Who raised each order, so a delivery that is short or over has a name
+    // beside it rather than a PO number to look up.
+    const buyerIdByPo = new Map<string, string>();
+    for (const p of pos ?? [])
+      if (p.po_number && p.created_by)
+        buyerIdByPo.set(p.po_number.toUpperCase(), p.created_by);
+
+    const buyerIds = [...new Set(buyerIdByPo.values())];
+    const { data: profs } = buyerIds.length
+      ? await supabase.from("profiles").select("id, full_name, email").in("id", buyerIds)
+      : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
+    const nameById = new Map(
+      (profs ?? []).map((p) => [p.id, p.full_name ?? p.email ?? p.id.slice(0, 8)])
+    );
+    for (const [po, id] of buyerIdByPo)
+      buyerByPo.set(po, nameById.get(id) ?? null);
+
     for (const p of pos ?? [])
       for (const l of (p.po_line as unknown as {
         item_code: string | null;
@@ -112,6 +134,7 @@ export async function getReceipts(limit = 200): Promise<ReceiptRow[]> {
           ? received - ordered
           : null,
       supplier: r.supplier,
+      buyer: buyerByPo.get((r.po_number ?? "").toUpperCase()) ?? null,
     };
   });
 }
