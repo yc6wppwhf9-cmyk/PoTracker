@@ -27,38 +27,76 @@ export function ResetForm() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("checking");
   const [error, setError] = useState<string | null>(null);
+  /** Why a link was rejected, shown so a failure is diagnosable rather than
+   *  the same sentence for every cause. */
+  const [detail, setDetail] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
 
-    // supabase-js consumes the fragment asynchronously on load, so a single
-    // getSession() can run before it has finished. onAuthStateChange fires
-    // when it does; the getSession below covers the case where it already had.
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) return;
-      setPhase("ready");
-      // Keep the tokens out of the address bar, and out of anything the
-      // browser syncs or a screenshot captures.
-      if (window.location.hash)
+    // The tokens are read out of the fragment BY HAND and handed to
+    // setSession, rather than left to the library's detectSessionInUrl.
+    //
+    // createBrowserClient defaults to flowType "pkce", and whether it also
+    // picks up implicit-flow tokens from a hash is an internal detail of
+    // supabase-js — one this screen has already been burnt by twice. The auth
+    // log proved the link itself was good (/verify returned 303 with
+    // action=login) while the page still said it had expired, which means the
+    // failure was here, in the reading of it. Doing it explicitly removes the
+    // guesswork: the tokens either parse and are accepted, or they do not, and
+    // either way this can say which.
+    async function establish() {
+      const hash = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : "";
+      const params = new URLSearchParams(hash);
+
+      // GoTrue reports its own failures in the fragment too.
+      const linkError =
+        params.get("error_description") ?? params.get("error");
+      if (linkError) {
+        setDetail(linkError.replace(/\+/g, " "));
+        setPhase("invalid");
+        return;
+      }
+
+      const access_token = params.get("access_token");
+      const refresh_token = params.get("refresh_token");
+
+      if (access_token && refresh_token) {
+        const { error: err } = await supabase.auth.setSession({
+          access_token,
+          refresh_token,
+        });
+        // Cleared whether or not it worked: the tokens should not stay in the
+        // address bar, in history, or in a screenshot of a failing page.
         window.history.replaceState(
           null,
           "",
           window.location.pathname + window.location.search
         );
-    });
+        if (err) {
+          setDetail(err.message);
+          setPhase("invalid");
+          return;
+        }
+        setPhase("ready");
+        return;
+      }
 
-    supabase.auth.getSession().then(({ data }) => {
+      // No tokens in the URL. Either the page was opened directly, or a
+      // session already exists — someone using "change my password" while
+      // signed in lands here too.
+      const { data } = await supabase.auth.getSession();
       if (data.session) {
         setPhase("ready");
         return;
       }
-      // Give the fragment a moment to be consumed before calling it invalid.
-      // Telling somebody holding a good link that it expired is the failure
-      // this screen has already had twice.
-      setTimeout(() => setPhase((p) => (p === "checking" ? "invalid" : p)), 1500);
-    });
+      setDetail("The link contained no sign-in token.");
+      setPhase("invalid");
+    }
 
-    return () => sub.subscription.unsubscribe();
+    establish();
   }, []);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -95,8 +133,11 @@ export function ResetForm() {
     return (
       <>
         <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          This link is no longer valid — it has expired, or a newer one has been
-          sent.
+          This link did not sign you in — it has expired, or a newer one has
+          been sent.
+          {detail && (
+            <span className="mt-1 block text-xs opacity-80">{detail}</span>
+          )}
         </p>
         <p className="mt-4 text-center text-sm">
           <Link
