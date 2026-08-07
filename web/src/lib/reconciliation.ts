@@ -38,8 +38,8 @@ export const STATUS_META: Record<
   partial: { label: "Partial", short: "under-bought", token: "warn" },
   not_bought: { label: "Not bought", short: "no PO yet", token: "pending" },
   drafted_only: {
-    label: "Draft only",
-    short: "drafted, not sent",
+    label: "Pending",
+    short: "raised, not sent",
     token: "pending",
   },
   extra_not_in_sheet: { label: "Extra", short: "not on the sheet", token: "serious" },

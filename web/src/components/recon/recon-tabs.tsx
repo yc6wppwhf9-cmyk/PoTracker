@@ -231,9 +231,9 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
                       <div
                         className="text-xs font-medium"
                         style={{ color: "var(--st-pending)" }}
-                        title="In an unsent draft PO — not ordered yet"
+                        title="Allocated to a PO the buyer has not sent yet"
                       >
-                        +{fmt(r.drafted)} draft
+                        +{fmt(r.drafted)} pending
                       </div>
                     )}
                   </td>
