@@ -135,7 +135,7 @@ To test without waiting, run the cron command by hand — it is safe to repeat.
 | Symptom | Cause |
 | --- | --- |
 | `503 CRON_SECRET is not configured` | Variable missing on the **API** service |
-| `401 Bad or missing X-Cron-Secret` | Cron job and API hold different values |
+| `401 Bad or missing X-Cron-Secret` | Cron job and API hold different values. Check `cron_secret_len` on `/health` — a correct secret is 64 characters |
 | `502 Could not read the mailbox` | Wrong App Password, or IMAP disabled in Gmail |
 | `checked: 0` forever | Mail is not unread, or lands in a different folder than `IMAP_FOLDER` |
 | Rows say `skipped` | Sender not in `GRN_ALLOWED_SENDERS`, or subject filter too narrow |
