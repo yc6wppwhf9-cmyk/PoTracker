@@ -1,20 +1,37 @@
 "use server";
 
 import { headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { supabaseUrl, supabaseAnonKey } from "@/lib/env";
 
 export type ForgotState = { error: string | null; sent: boolean };
 
 /**
  * Send a password-reset link.
  *
- * Always reports success, whatever happened. Saying "no account with that
- * address" turns the form into a way of testing which company addresses exist
- * here — and the person who genuinely mistyped theirs is no worse off, because
- * the mail simply does not arrive either way.
+ * Deliberately calls GoTrue's /recover endpoint directly instead of
+ * `supabase.auth.resetPasswordForEmail`, because supabase-js uses PKCE and
+ * PKCE is the wrong shape for a password reset.
  *
- * Rate limiting is Supabase's, not ours: GoTrue caps recovery mails per address
- * and per hour, so a form that reports nothing cannot be used to flood someone.
+ * Under PKCE the library generates a secret "code verifier", keeps it in a
+ * cookie in the browser that ASKED, and puts only its hash in the email. The
+ * link is then usable from nowhere else, which breaks two ordinary things:
+ *
+ *   - Requesting a second link overwrites the verifier, so the first email
+ *     stops working — and whoever clicks the older one is told it expired.
+ *   - Opening the link on a phone, or in another browser, can never work at
+ *     all. Nothing says so; it reports the same "expired or already used".
+ *
+ * Both happened here. The failure eventually named itself: "code challenge
+ * does not match previously saved code verifier".
+ *
+ * With no code challenge GoTrue issues a stateless recovery link. It carries
+ * its own one-time token, works from any device, and older links keep working
+ * until they expire on their own — which is what a password reset should be.
+ *
+ * Always reports success, whatever happened, EXCEPT a rate limit. Saying "no
+ * account with that address" would turn this form into a way of testing which
+ * company addresses exist; a rate limit says nothing about the address, only
+ * about how much mail the project has sent.
  */
 export async function requestPasswordReset(
   _prev: ForgotState,
@@ -23,48 +40,44 @@ export async function requestPasswordReset(
   const email = String(formData.get("email") ?? "").trim();
   if (!email) return { error: "Enter your email address.", sent: false };
 
-  // Built from the request rather than an env var. The reset link has to come
-  // back to the host the person is actually using, and APP_URL being wrong or
-  // unset would send them to localhost — discoverable only by a user who
-  // cannot get in and cannot say why.
+  // Built from the request rather than an env var: the link has to come back
+  // to the host the person is actually using.
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("x-forwarded-host") ?? h.get("host");
-  // Via /auth/callback, not straight to the form. The code exchange has to
-  // happen somewhere cookies can be written, which a Server Component render
-  // is not — see that route for what went wrong when it did.
-  const redirectTo = `${proto}://${host}/auth/callback?next=/reset-password`;
+  const redirectTo = `${proto}://${host}/reset-password`;
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo,
-  });
+  let res: Response;
+  try {
+    res = await fetch(
+      `${supabaseUrl()}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`,
+      {
+        method: "POST",
+        headers: {
+          apikey: supabaseAnonKey(),
+          Authorization: `Bearer ${supabaseAnonKey()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      }
+    );
+  } catch (e) {
+    console.error("[forgot-password]", e);
+    return {
+      error: "Could not reach the authentication service. Try again shortly.",
+      sent: false,
+    };
+  }
 
-  if (error) console.error("[forgot-password]", error.message);
-
-  // A rate limit IS shown, unlike every other failure here.
-  //
-  // Reporting success for an unknown address is deliberate — otherwise this
-  // form tells a stranger which company addresses exist. A rate limit says
-  // nothing about the address, only about how much mail the project has sent,
-  // so hiding it protects nobody and leaves the person waiting for a message
-  // that was never sent. That is exactly what happened: Supabase's built-in
-  // sender allows a couple of messages an hour across the whole project, and
-  // the third request returned over_email_send_rate_limit while this screen
-  // said the link was on its way.
-  const limited =
-    error &&
-    (/rate limit/i.test(error.message) ||
-      (error as { code?: string }).code === "over_email_send_rate_limit" ||
-      (error as { status?: number }).status === 429);
-
-  if (limited)
+  if (res.status === 429)
     return {
       error:
         "Too many reset emails have been sent recently. Wait an hour and try " +
         "again, or ask an administrator to set your password directly.",
       sent: false,
     };
+
+  if (!res.ok) console.error("[forgot-password]", res.status, await res.text());
 
   return { error: null, sent: true };
 }
