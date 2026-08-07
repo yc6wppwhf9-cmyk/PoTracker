@@ -33,6 +33,31 @@ export async function saveAssignments(
     return { error: "Malformed assignment payload.", ok: false };
   }
 
+  // One round trip: the database applies every assignment, sets the sheet's
+  // status and records the change in a single statement.
+  //
+  // The fallback below does the same work in ~40 requests and takes over a
+  // minute on a sheet of this size. It stays only until the migration is
+  // applied everywhere; PGRST202 is PostgREST for "no such function".
+  const rpc = await supabase.rpc("assign_buyers", {
+    p_sheet_id: sheetId,
+    p_assignments: assignments,
+  });
+  if (!rpc.error) {
+    revalidatePath(`/procurement/assign/${sheetId}`);
+    revalidatePath("/procurement/assign");
+    revalidatePath("/procurement/buyer");
+    return { error: null, ok: true };
+  }
+  if (rpc.error.code !== "PGRST202") {
+    return { error: rpc.error.message, ok: false };
+  }
+  console.warn(
+    "[assign] assign_buyers() is missing — falling back to the slow path. " +
+      "Apply supabase/migrations/20260815_assign_buyers_rpc.sql."
+  );
+
+  // ---- Fallback: the original per-batch path. ----
   // Fetch every line for the sheet with item_code & catalogue category.
   // Paged: a truncated read here would assign buyers to only the first 1000
   // lines and silently leave the rest unassigned.
@@ -85,14 +110,20 @@ export async function saveAssignments(
     }
     if (ids.length === 0) continue;
     const value = buyerId ? buyerId : null;
-    for (const batch of chunk(ids, 100)) {
-      const { error } = await supabase
-        .from("rm_requirement")
-        .update({ assigned_buyer: value })
-        .in("id", batch);
-      if (error) return { error: error.message, ok: false };
-      updated += batch.length;
-    }
+    // In parallel: these batches are independent, and run one after another
+    // the round trips add up rather than overlap.
+    const batches = chunk(ids, 100);
+    const results = await Promise.all(
+      batches.map((batch) =>
+        supabase
+          .from("rm_requirement")
+          .update({ assigned_buyer: value })
+          .in("id", batch)
+      )
+    );
+    const failed = results.find((r) => r.error);
+    if (failed?.error) return { error: failed.error.message, ok: false };
+    updated += ids.length;
   }
 
   // Mark the sheet 'assigned' once every matched line has a buyer. Paged: a

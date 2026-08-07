@@ -343,6 +343,7 @@ export type Database = {
       po_line: {
         Row: {
           created_at: string
+          etd: string | null
           id: string
           item_code: string | null
           location: string | null
@@ -354,10 +355,12 @@ export type Database = {
           raw_label: string | null
           raw_unit: string | null
           remark: string | null
+          site: string | null
           supplier: string | null
         }
         Insert: {
           created_at?: string
+          etd?: string | null
           id?: string
           item_code?: string | null
           location?: string | null
@@ -369,10 +372,12 @@ export type Database = {
           raw_label?: string | null
           raw_unit?: string | null
           remark?: string | null
+          site?: string | null
           supplier?: string | null
         }
         Update: {
           created_at?: string
+          etd?: string | null
           id?: string
           item_code?: string | null
           location?: string | null
@@ -384,6 +389,7 @@ export type Database = {
           raw_label?: string | null
           raw_unit?: string | null
           remark?: string | null
+          site?: string | null
           supplier?: string | null
         }
         Relationships: [
@@ -557,6 +563,16 @@ export type Database = {
       }
     }
     Views: {
+      po_delivery: {
+        Row: {
+          distinct_etds: number | null
+          distinct_sites: number | null
+          etd: string | null
+          po_id: string | null
+          site: string | null
+        }
+        Relationships: []
+      }
       reconciliation: {
         Row: {
           base_unit: string | null
@@ -582,6 +598,17 @@ export type Database = {
       add_working_hours: {
         Args: { p_start: string; p_hours: number }
         Returns: string
+      }
+      assign_buyers: {
+        Args: { p_assignments: Json; p_sheet_id: string }
+        Returns: Json
+      }
+      assigned_buyer_counts: {
+        Args: { p_sheet_id: string }
+        Returns: {
+          buyer_id: string
+          lines: number
+        }[]
       }
       buyer_on_sheet: { Args: { sheet: string }; Returns: boolean }
       can_see_po: { Args: { p: string }; Returns: boolean }

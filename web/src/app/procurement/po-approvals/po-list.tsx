@@ -274,6 +274,10 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
                       <tr>
                         <th className="py-1 font-medium">Item</th>
                         <th className="py-1 font-medium">Lot</th>
+                        {/* Per item: an order can be split across sites and
+                            dates, so the header above may show none. */}
+                        <th className="py-1 font-medium">ETD</th>
+                        <th className="py-1 font-medium">Site</th>
                         <th className="py-1 text-right font-medium">Ordered</th>
                         <th className="py-1 text-right font-medium">Received</th>
                         <th className="py-1 text-right font-medium">Balance</th>
@@ -293,6 +297,12 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
                               </span>
                             </td>
                             <td className="py-1 text-neutral-500">{it.lot ?? "—"}</td>
+                            <td className="py-1 text-neutral-500">
+                              {it.etd ? formatDate(it.etd) : "—"}
+                            </td>
+                            <td className="py-1 text-neutral-500">
+                              {shortSite(it.site)}
+                            </td>
                             <td className="py-1 text-right tabular-nums">
                               {it.ordered.toLocaleString()}
                             </td>

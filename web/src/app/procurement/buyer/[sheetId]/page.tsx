@@ -5,8 +5,38 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm, type AssignedItem } from "./po-form";
-import { SendPoBtn, PoDetailsFields } from "./send-po-btn";
+import { SendPoBtn, LineDeliveryFields } from "./send-po-btn";
+import { BulkSendProvider, SelectPo } from "./bulk-send";
 import { shortSite } from "@/lib/sites";
+
+/**
+ * Delivery in one line, for the collapsed header of a sent PO.
+ *
+ * ETD and site now live on each line, so an order need not have a single one.
+ * Where the lines differ this says so rather than showing the first — a date on
+ * a header that only some of the order will meet is worse than no date.
+ */
+function deliverySummary(
+  lines: { etd?: string | null; site?: string | null }[]
+): string {
+  const etds = new Set(lines.map((l) => l.etd).filter(Boolean));
+  const sites = new Set(lines.map((l) => l.site).filter(Boolean));
+
+  const etd =
+    etds.size === 0
+      ? "no ETD"
+      : etds.size === 1
+        ? `ETD ${new Date([...etds][0] as string).toLocaleDateString("en-GB")}`
+        : `${etds.size} ETDs`;
+  const site =
+    sites.size === 0
+      ? "no site"
+      : sites.size === 1
+        ? shortSite([...sites][0] as string)
+        : `${sites.size} sites`;
+
+  return `${etd} · ${site}`;
+}
 
 /** The supplier a draft is for; drafts are split one per supplier. */
 function supplierOf(
@@ -84,7 +114,7 @@ export default async function BuyerSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, created_at, doc_path, etd, site, po_number, po_line(item_code, lot, location, ordered_qty, supplier, remark, item_master(name))"
+      "id, status, created_at, doc_path, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, remark, etd, site, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .eq("created_by", profile.userId)
@@ -121,16 +151,24 @@ export default async function BuyerSheetPage({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
             Your POs for this sheet
           </h2>
+          <BulkSendProvider
+            draftIds={(pos ?? [])
+              .filter((p) => p.status === "draft")
+              .map((p) => p.id)}
+          >
           <div className="mt-3 space-y-3">
             {pos.map((p) => {
               const poLines =
                 (p.po_line as unknown as {
+                  id: string;
                   item_code: string | null;
                   lot: string | null;
                   location: string | null;
                   ordered_qty: number;
                   supplier: string | null;
                   remark: string | null;
+                  etd: string | null;
+                  site: string | null;
                   item_master: { name?: string } | null;
                 }[]) ?? [];
               return (
@@ -140,6 +178,7 @@ export default async function BuyerSheetPage({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
                     <span className="flex items-center gap-3">
+                      <SelectPo poId={p.id} draft={p.status === "draft"} />
                       {/* Shows the supplier-facing number once the PO team
                           has attached the document it comes from. */}
                       <span className="font-mono text-xs">
@@ -165,8 +204,7 @@ export default async function BuyerSheetPage({
                       {p.doc_path ? "📎 doc" : "—"}
                       {p.status !== "draft" && (
                         <span className="text-xs text-neutral-500">
-                          {p.etd ? `ETD ${p.etd}` : "no ETD"} ·{" "}
-                          {shortSite(p.site)}
+                          {deliverySummary(poLines)}
                         </span>
                       )}
                       {p.status === "draft" && (
@@ -178,11 +216,6 @@ export default async function BuyerSheetPage({
                       )}
                     </span>
                   </div>
-                  {p.status === "draft" && (
-                    <div className="border-t border-black/5 px-4 py-2 dark:border-white/5">
-                      <PoDetailsFields poId={p.id} etd={p.etd} site={p.site} />
-                    </div>
-                  )}
                   <details className="group border-t border-black/5 dark:border-white/5">
                     <summary className="cursor-pointer list-none px-4 py-2 text-xs text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
                       <span className="group-open:hidden">▸ View items</span>
@@ -194,9 +227,11 @@ export default async function BuyerSheetPage({
                           <tr>
                             <th className="px-3 py-2 font-medium">Item</th>
                             <th className="px-3 py-2 font-medium">Code</th>
-                            <th className="px-3 py-2 font-medium">Plant</th>
+                            <th className="px-3 py-2 font-medium">Supplier</th>
                             <th className="px-3 py-2 font-medium">Lot</th>
                             <th className="px-3 py-2 font-medium">Ordered</th>
+                            <th className="px-3 py-2 font-medium">ETD</th>
+                            <th className="px-3 py-2 font-medium">Site</th>
                             <th className="px-3 py-2 font-medium">Remark</th>
                           </tr>
                         </thead>
@@ -213,7 +248,7 @@ export default async function BuyerSheetPage({
                                 {l.item_code}
                               </td>
                               <td className="px-3 py-2 text-neutral-500">
-                                {l.location ?? "—"}
+                                {l.supplier ?? "—"}
                               </td>
                               <td className="px-3 py-2 text-neutral-500">
                                 {l.lot ?? "—"}
@@ -221,6 +256,12 @@ export default async function BuyerSheetPage({
                               <td className="px-3 py-2">
                                 {Number(l.ordered_qty).toLocaleString()}
                               </td>
+                              <LineDeliveryFields
+                                lineId={l.id}
+                                etd={l.etd}
+                                site={l.site}
+                                editable={p.status === "draft"}
+                              />
                               <td className="px-3 py-2 text-neutral-500">
                                 {l.remark ?? "—"}
                               </td>
@@ -234,6 +275,7 @@ export default async function BuyerSheetPage({
               );
             })}
           </div>
+          </BulkSendProvider>
         </div>
       )}
     </AppShell>

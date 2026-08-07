@@ -17,6 +17,8 @@ export type PoApprovalItem = {
   received: number;
   rate: number | null;
   value: number | null;
+  etd: string | null;
+  site: string | null;
 };
 
 export type PoApproval = {
@@ -55,7 +57,7 @@ export async function getPoApprovals(): Promise<PoApproval[]> {
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, po_number, site, etd, status, doc_path, approval_status, approved_at, approved_by, approval_note, created_by, rm_sheet_id, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, rate, supplier, item_master(name))"
+      "id, po_number, site, etd, status, doc_path, approval_status, approved_at, approved_by, approval_note, created_by, rm_sheet_id, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, rate, supplier, etd, site, item_master(name))"
     )
     .neq("status", "draft")
     .order("created_at", { ascending: false });
@@ -120,6 +122,8 @@ export async function getPoApprovals(): Promise<PoApproval[]> {
         ordered_qty: number;
         rate: number | null;
         supplier: string | null;
+        etd: string | null;
+        site: string | null;
         item_master: { name?: string } | null;
       }[]) ?? [];
 
@@ -140,8 +144,20 @@ export async function getPoApprovals(): Promise<PoApproval[]> {
           : 0,
         rate,
         value: rate == null ? null : rate * ordered,
+        // Falling back to the order's for POs raised before ETD and site
+        // moved down onto the line.
+        etd: l.etd ?? p.etd ?? null,
+        site: l.site ?? p.site ?? null,
       };
     });
+
+    // One value for the order only where the lines agree on one. An order
+    // split across two sites has no single site, and showing the first would
+    // tell the approver something no line actually promised.
+    const single = <T,>(vals: (T | null)[]): T | null => {
+      const set = new Set(vals.filter((v) => v != null));
+      return set.size === 1 ? ([...set][0] as T) : null;
+    };
 
     const value = items.some((i) => i.value != null)
       ? items.reduce((s, i) => s + (i.value ?? 0), 0)
@@ -154,8 +170,8 @@ export async function getPoApprovals(): Promise<PoApproval[]> {
         [...new Set(poLines.map((l) => l.supplier?.trim()).filter(Boolean))].join(
           ", "
         ) || null,
-      site: p.site,
-      etd: p.etd,
+      site: single(items.map((i) => i.site)),
+      etd: single(items.map((i) => i.etd)),
       status: p.status,
       approvalStatus: p.approval_status ?? "pending",
       approvedAt: p.approved_at,

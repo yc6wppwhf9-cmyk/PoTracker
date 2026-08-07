@@ -16,22 +16,21 @@ export type EditableLine = {
   supplier: string | null;
   rate: number | null;
   remark: string | null;
+  /** Set by the buyer per line — one order can ship to two sites on two
+   *  dates. Falls back to the PO's own values for orders raised before they
+   *  moved down onto the line. */
+  etd: string | null;
+  site: string | null;
 };
 
 export function PoLinesEditor({
   poId,
   lines,
   locked,
-  etd,
-  site,
 }: {
   poId: string;
   lines: EditableLine[];
   locked: boolean;
-  /** Held on the PO, not the line: every line of a PO shares them, because
-   *  drafts group by supplier, date and destination together. */
-  etd: string | null;
-  site: string | null;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<Record<string, { qty: string }>>(
@@ -107,14 +106,13 @@ export function PoLinesEditor({
                       />
                     )}
                   </td>
-                  {/* Repeated per row because the PO team reads this table
-                      line by line against the signed document, which prints the
+                  {/* Per line, matching the signed document, which prints the
                       date and ship-to beside every item. */}
                   <td className="px-3 py-2 whitespace-nowrap text-neutral-600 dark:text-neutral-300">
-                    {etd ?? "—"}
+                    {l.etd ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
-                    {site ? shortSite(site) : "—"}
+                    {l.site ? shortSite(l.site) : "—"}
                   </td>
                   <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
                     {l.supplier ?? "—"}

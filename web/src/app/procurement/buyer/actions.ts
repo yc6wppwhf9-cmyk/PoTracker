@@ -101,24 +101,34 @@ export async function createPo(
   if (badSite)
     return { error: `Unknown delivery site: ${badSite.site}.`, poId: null };
 
+  // Grouped by supplier alone. ETD and site are now per line, so a supplier
+  // shipping to two sites on two dates is one order with four lines rather
+  // than four separate POs — which is what the supplier actually receives.
   const groups = new Map<string, LineInput[]>();
   for (const l of lines) {
-    const key = [l.supplier?.trim() || "", l.etd || "", l.site || ""].join("|");
+    const key = l.supplier?.trim() || "";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(l);
   }
 
   const created: string[] = [];
-  for (const [key, group] of groups) {
-    const [supplier, etd, site] = key.split("|");
+  for (const [supplier, group] of groups) {
+    // po.etd and po.site are kept in step where the whole order agrees, since
+    // that is what older screens and the document itself read. Where the lines
+    // differ there is no order-level answer, and null is the honest one.
+    const only = (vals: (string | null | undefined)[]) => {
+      const set = new Set(vals.map((v) => v || "").filter(Boolean));
+      return set.size === 1 ? [...set][0] : null;
+    };
+
     const { data: poRows, error: poErr } = await supabase
       .from("po")
       .insert({
         rm_sheet_id: sheetId,
         created_by: me.userId,
         status: "draft",
-        etd: etd || null,
-        site: site || null,
+        etd: only(group.map((l) => l.etd)),
+        site: only(group.map((l) => l.site)),
       })
       .select("id")
       .limit(1);
@@ -149,6 +159,8 @@ export async function createPo(
             ? null
             : Number(l.rate),
         remark: l.remark?.trim() ? l.remark.trim() : null,
+        etd: l.etd || null,
+        site: l.site || null,
       }))
     );
     if (lineErr) {
@@ -186,39 +198,90 @@ export async function createPo(
 export type SendPoState = { error: string | null; ok: boolean };
 
 /**
- * Correct the ETD or delivery site on a draft before it is sent.
+ * ETD and delivery site on a single line of a draft.
  *
- * One submit can create several drafts — one per supplier — all carrying the
- * same order-level values, and suppliers rarely deliver on the same date. RLS
- * permits this only while the PO is a draft and only for its creator.
+ * Per line rather than per PO: one supplier's order is routinely split across
+ * sites and dates, and a single value for the whole order made the buyer either
+ * split the draft or record something untrue.
+ *
+ * Ownership is enforced through the parent PO — a line carries no buyer of its
+ * own, so checking it here rather than on po_line would leave any buyer able to
+ * redate another's order.
  */
-export async function updatePoDetails(
-  poId: string,
+export async function updatePoLineDetails(
+  lineId: string,
   etd: string | null,
   site: string | null
 ): Promise<SendPoState> {
   const me = await requireRole("buyer");
   const supabase = await createClient();
-  if (!poId) return { error: "Missing PO.", ok: false };
+  if (!lineId) return { error: "Missing line.", ok: false };
   if (site && !isKnownSite(site))
     return { error: `Unknown delivery site: ${site}.`, ok: false };
 
-  const { data, error } = await supabase
-    .from("po")
-    .update({ etd: etd || null, site: site || null })
-    .eq("id", poId)
-    .eq("created_by", me.userId)
-    .eq("status", "draft")
-    .select("id, rm_sheet_id");
-  if (error) return { error: error.message, ok: false };
-  if ((data?.length ?? 0) === 0)
+  const { data: line, error: readErr } = await supabase
+    .from("po_line")
+    .select("id, po:po_id(id, status, created_by, rm_sheet_id)")
+    .eq("id", lineId)
+    .maybeSingle();
+  if (readErr) return { error: readErr.message, ok: false };
+
+  const po = line?.po as unknown as {
+    id: string;
+    status: string;
+    created_by: string | null;
+    rm_sheet_id: string;
+  } | null;
+  if (!po) return { error: "That line no longer exists.", ok: false };
+  if (po.created_by !== me.userId)
+    return { error: "That PO belongs to another buyer.", ok: false };
+  if (po.status !== "draft")
     return {
-      error: "Could not update — the PO may already have been sent.",
+      error: "This PO has already been sent — its lines can no longer be edited.",
       ok: false,
     };
 
-  revalidatePath(`/procurement/buyer/${data![0].rm_sheet_id}`);
+  const { error } = await supabase
+    .from("po_line")
+    .update({ etd: etd || null, site: site || null })
+    .eq("id", lineId);
+  if (error) return { error: error.message, ok: false };
+
+  revalidatePath(`/procurement/buyer/${po.rm_sheet_id}`);
   return { error: null, ok: true };
+}
+
+/**
+ * Why a draft cannot be sent yet, or null if it can.
+ *
+ * The PO team cannot produce a document without knowing what is being bought,
+ * from whom, when it is due and where it ships — so these are required to
+ * send, not to draft. Checked per line since ETD and site moved there.
+ *
+ * Counts are named rather than the first offender: "3 of 12 lines have no ETD"
+ * tells the buyer how much work is left, which "set the ETD" does not.
+ */
+function readyToSend(
+  lines: { supplier: string | null; etd: string | null; site: string | null }[]
+): string | null {
+  if (lines.length === 0) return "This PO has no lines.";
+
+  const missing = (pick: (l: (typeof lines)[number]) => string | null) =>
+    lines.filter((l) => !pick(l)?.trim()).length;
+
+  const noSupplier = missing((l) => l.supplier);
+  if (noSupplier)
+    return `Set the supplier on every line — ${noSupplier} of ${lines.length} still have none.`;
+
+  const noEtd = missing((l) => l.etd);
+  if (noEtd)
+    return `Set the ETD on every line — ${noEtd} of ${lines.length} still have none.`;
+
+  const noSite = missing((l) => l.site);
+  if (noSite)
+    return `Set the delivery site on every line — ${noSite} of ${lines.length} still have none.`;
+
+  return null;
 }
 
 /**
@@ -236,7 +299,9 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
 
   const { data: poRows, error: readErr } = await supabase
     .from("po")
-    .select("id, status, created_by, rm_sheet_id, etd, site, po_line(id, supplier)")
+    .select(
+      "id, status, created_by, rm_sheet_id, po_line(id, supplier, etd, site)"
+    )
     .eq("id", poId)
     .limit(1);
   if (readErr) return { error: readErr.message, ok: false };
@@ -247,21 +312,15 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
   if (po.status !== "draft")
     return { error: "This PO has already been sent.", ok: false };
 
-  const lines = (po.po_line as unknown as { id: string; supplier: string | null }[]) ?? [];
-  if (lines.length === 0)
-    return { error: "This PO has no lines.", ok: false };
-  // The PO team cannot produce a document without knowing when it is due and
-  // where it ships, so these are required to send rather than to draft.
-  if (!po.etd) return { error: "Set the ETD before sending this PO.", ok: false };
-  if (!po.site)
-    return { error: "Set the delivery site before sending this PO.", ok: false };
-  // The PO team's whole job is to produce the document for a named supplier,
-  // so sending one without a supplier would hand them an unanswerable task.
-  if (lines.some((l) => !l.supplier?.trim()))
-    return {
-      error: "Set the supplier on every line before sending this PO.",
-      ok: false,
-    };
+  const lines =
+    (po.po_line as unknown as {
+      id: string;
+      supplier: string | null;
+      etd: string | null;
+      site: string | null;
+    }[]) ?? [];
+  const problem = readyToSend(lines);
+  if (problem) return { error: problem, ok: false };
 
   const { data: updated, error } = await supabase
     .from("po")
@@ -305,6 +364,55 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
       ok: false,
     };
   return { error: null, ok: true };
+}
+
+export type BulkSendState = {
+  ok: boolean;
+  error: string | null;
+  sent: number;
+  failures: { poId: string; reason: string }[];
+};
+
+/**
+ * Send several drafts to the PO team in one go.
+ *
+ * A sheet routinely produces a draft per supplier, and sending twenty of them
+ * one button at a time is the same confirmation twenty times.
+ *
+ * Each PO is sent independently and a failure does not stop the rest: they are
+ * separate orders to separate suppliers, and refusing to send nineteen valid
+ * ones because the twentieth lacks a site would be the wrong trade. Every
+ * failure is reported by PO, so the buyer knows exactly what remains.
+ */
+export async function sendPosToTeam(poIds: string[]): Promise<BulkSendState> {
+  await requireRole("buyer");
+  const ids = [...new Set(poIds.filter(Boolean))];
+  if (ids.length === 0)
+    return { ok: false, error: "No POs selected.", sent: 0, failures: [] };
+
+  // Sequential, deliberately. Each send writes a status, an audit row and a
+  // mail; running them together would put the mail service under a burst it
+  // has no reason to absorb, and a rate-limited notification would report a
+  // PO as unsent when it had in fact been handed over.
+  const failures: { poId: string; reason: string }[] = [];
+  let sent = 0;
+  for (const id of ids) {
+    const res = await sendPoToTeam(id);
+    if (res.ok) sent += 1;
+    else failures.push({ poId: id, reason: res.error ?? "Unknown error." });
+  }
+
+  return {
+    ok: sent > 0,
+    sent,
+    failures,
+    error:
+      failures.length === 0
+        ? null
+        : sent === 0
+          ? `None of the ${ids.length} selected PO(s) could be sent.`
+          : `${sent} of ${ids.length} PO(s) were sent; ${failures.length} could not be.`,
+  };
 }
 
 /** A later supplier failing must not read as though nothing was created. */

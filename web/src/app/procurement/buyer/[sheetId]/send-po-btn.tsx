@@ -2,24 +2,36 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { sendPoToTeam, updatePoDetails } from "../actions";
-import { SITES } from "@/lib/sites";
+import { sendPoToTeam, updatePoLineDetails } from "../actions";
+import { SITES, shortSite } from "@/lib/sites";
+
+const FIELD =
+  "rounded-md border border-black/10 bg-white px-2 py-1 text-xs disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950";
 
 /**
- * ETD and delivery site on an unsent draft.
+ * ETD and delivery site for one line of a draft, edited in place in the items
+ * table.
  *
- * One submit can produce several drafts sharing the same values, and different
- * suppliers rarely deliver on the same day — so they are editable here, right
- * up until the PO is sent.
+ * Per line, not per PO: a single supplier's order is routinely split across
+ * sites and dates, and one value for the whole order made the buyer either
+ * split the draft or record something untrue.
+ *
+ * Saved on change rather than behind a button. There is no submit for the
+ * table as a whole, so an unsaved edit would be lost silently on navigation —
+ * and a date the buyer believes they set is worse than one they know they
+ * have not.
  */
-export function PoDetailsFields({
-  poId,
+export function LineDeliveryFields({
+  lineId,
   etd,
   site,
+  editable,
 }: {
-  poId: string;
+  lineId: string;
   etd: string | null;
   site: string | null;
+  /** Sent POs are read-only; the values still show. */
+  editable: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -30,51 +42,67 @@ export function PoDetailsFields({
   function save(nextEtd: string, nextSite: string) {
     setError(null);
     startTransition(async () => {
-      const res = await updatePoDetails(poId, nextEtd || null, nextSite || null);
+      const res = await updatePoLineDetails(
+        lineId,
+        nextEtd || null,
+        nextSite || null
+      );
       if (res.error) setError(res.error);
       else router.refresh();
     });
   }
 
-  const cls =
-    "rounded-md border border-black/10 bg-white px-2 py-1 text-xs disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950";
+  if (!editable) {
+    return (
+      <>
+        <td className="px-3 py-2 text-neutral-500">
+          {etd ? new Date(etd).toLocaleDateString("en-GB") : "—"}
+        </td>
+        <td className="px-3 py-2 text-neutral-500">{shortSite(site)}</td>
+      </>
+    );
+  }
 
   return (
-    <span className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-      <label className="flex items-center gap-1">
-        ETD
+    <>
+      <td className="px-3 py-2">
         <input
           type="date"
+          aria-label="Expected delivery date"
           value={localEtd}
           disabled={pending}
           onChange={(e) => {
             setLocalEtd(e.target.value);
             save(e.target.value, localSite);
           }}
-          className={cls}
+          className={FIELD}
         />
-      </label>
-      <label className="flex items-center gap-1">
-        Site
+      </td>
+      <td className="px-3 py-2">
         <select
+          aria-label="Delivery site"
           value={localSite}
           disabled={pending}
           onChange={(e) => {
             setLocalSite(e.target.value);
             save(localEtd, e.target.value);
           }}
-          className={`max-w-[15rem] ${cls}`}
+          className={`max-w-[11rem] ${FIELD}`}
         >
           <option value="">— select —</option>
           {SITES.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {shortSite(s)}
             </option>
           ))}
         </select>
-      </label>
-      {error && <span className="text-rose-600 dark:text-rose-400">{error}</span>}
-    </span>
+        {error && (
+          <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+            {error}
+          </div>
+        )}
+      </td>
+    </>
   );
 }
 

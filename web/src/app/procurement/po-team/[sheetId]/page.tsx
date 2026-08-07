@@ -16,6 +16,8 @@ type PoLine = {
   supplier: string | null;
   rate: number | null;
   remark: string | null;
+  etd: string | null;
+  site: string | null;
   item_master: { name?: string } | null;
 };
 
@@ -50,7 +52,7 @@ export default async function PoTeamSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, doc_path, created_at, created_by, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, item_master(name))"
+      "id, status, doc_path, created_at, created_by, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, etd, site, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     // Drafts belong to the buyer until they press Send. Showing them here would
@@ -118,14 +120,10 @@ export default async function PoTeamSheetPage({
                     {suppliersOf(lines) ?? "No supplier set"}
                   </div>
                   <div className="text-xs text-neutral-500">
-                    Drafted by {buyer} · ETD{" "}
-                    <span className="font-medium text-neutral-700 dark:text-neutral-300">
-                      {p.etd ?? "not set"}
-                    </span>{" "}
-                    · Deliver to{" "}
-                    <span className="font-medium text-neutral-700 dark:text-neutral-300">
-                      {p.site ?? "not set"}
-                    </span>
+                    {/* ETD and site are per line now — an order can ship to
+                        two sites on two dates, so they are shown in the table
+                        rather than summarised here into one that is wrong. */}
+                    Drafted by {buyer}
                   </div>
                   <div className="mt-1">
                     <PoNumberField
@@ -164,8 +162,6 @@ export default async function PoTeamSheetPage({
                 <PoLinesEditor
                   poId={p.id}
                   locked={Boolean(p.doc_path)}
-                  etd={p.etd}
-                  site={p.site}
                   lines={lines.map((l) => ({
                     id: l.id,
                     item_code: l.item_code,
@@ -175,6 +171,8 @@ export default async function PoTeamSheetPage({
                     supplier: l.supplier,
                     rate: l.rate == null ? null : Number(l.rate),
                     remark: l.remark,
+                    etd: l.etd ?? p.etd ?? null,
+                    site: l.site ?? p.site ?? null,
                   }))}
                 />
               </details>

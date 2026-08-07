@@ -256,14 +256,28 @@ def notify_buyers_assigned(
     sheet = get_sheet(user.client, payload.rm_sheet_id)
     ref = _ref(sheet)
 
-    rows = fetch_all(
-        lambda: user.client.table("rm_requirement")
-        .select("assigned_buyer")
-        .eq("rm_sheet_id", payload.rm_sheet_id)
-        .not_.is_("assigned_buyer", "null"),
-        order_by="id",
-    )
-    per_buyer = Counter(r["assigned_buyer"] for r in rows if r.get("assigned_buyer"))
+    # Counted in the database. Paging every assigned line back here to tally
+    # them was several thousand rows crossed the network to produce one small
+    # number per buyer.
+    try:
+        res = user.client.rpc(
+            "assigned_buyer_counts", {"p_sheet_id": payload.rm_sheet_id}
+        ).execute()
+        per_buyer = Counter(
+            {r["buyer_id"]: r["lines"] for r in (res.data or []) if r.get("buyer_id")}
+        )
+    except Exception:
+        # Until 20260815_assign_buyers_rpc.sql is applied.
+        rows = fetch_all(
+            lambda: user.client.table("rm_requirement")
+            .select("assigned_buyer")
+            .eq("rm_sheet_id", payload.rm_sheet_id)
+            .not_.is_("assigned_buyer", "null"),
+            order_by="id",
+        )
+        per_buyer = Counter(
+            r["assigned_buyer"] for r in rows if r.get("assigned_buyer")
+        )
     if not per_buyer:
         return {"sent": False, "skipped": True, "reason": "no assignments"}
 

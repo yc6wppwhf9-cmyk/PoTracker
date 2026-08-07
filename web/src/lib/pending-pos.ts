@@ -60,7 +60,7 @@ export async function getPendingPos(): Promise<PendingLine[]> {
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, po_number, etd, site, rm_sheet_id, status, created_by, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, supplier, item_master(name))"
+      "id, po_number, etd, site, rm_sheet_id, status, created_by, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, supplier, etd, site, item_master(name))"
     )
     .neq("status", "draft")
     .order("etd", { ascending: true, nullsFirst: false });
@@ -117,6 +117,8 @@ export async function getPendingPos(): Promise<PendingLine[]> {
         lot: string | null;
         ordered_qty: number;
         supplier: string | null;
+        etd: string | null;
+        site: string | null;
         item_master: { name?: string } | null;
       }[]) ?? [];
 
@@ -124,14 +126,22 @@ export async function getPendingPos(): Promise<PendingLine[]> {
       | { style_ref: string | null }
       | null;
 
-    const etd = p.etd ? String(p.etd) : null;
-    const daysOverdue = etd
-      ? Math.max(0, Math.floor((Date.parse(today) - Date.parse(etd)) / 86_400_000))
-      : 0;
-
     poLines.forEach((l, i) => {
       const ordered = Number(l.ordered_qty) || 0;
       if (ordered <= 0) return;
+
+      // The line's own date and site, falling back to the order's for POs
+      // raised before they moved down to the line. Chasing is per item — half
+      // an order can be overdue while the rest is not yet due.
+      const etd = (l.etd ? String(l.etd) : null) ?? (p.etd ? String(p.etd) : null);
+      const site = l.site ?? p.site;
+      const daysOverdue = etd
+        ? Math.max(
+            0,
+            Math.floor((Date.parse(today) - Date.parse(etd)) / 86_400_000)
+          )
+        : 0;
+
       const received = p.po_number
         ? receivedBy.get(`${p.po_number}::${keyOf(l.item_code)}`) ?? 0
         : 0;
@@ -147,7 +157,7 @@ export async function getPendingPos(): Promise<PendingLine[]> {
         supplier: l.supplier,
         buyer: p.created_by ? buyerById.get(p.created_by) ?? null : null,
         buyerId: p.created_by ?? null,
-        site: p.site,
+        site,
         etd,
         daysOverdue,
         overdue: Boolean(etd && etd < today),
