@@ -4,7 +4,15 @@ import type { Database } from "@/lib/database.types";
 import { supabaseUrl, supabaseAnonKey } from "@/lib/env";
 
 /** Public routes that never require an authenticated session. */
-const PUBLIC_PREFIXES = ["/login", "/auth"];
+// /reset-password is reached from an emailed link, which is the whole point:
+// the person cannot sign in, so requiring a session to set a new password
+// would make the feature impossible to use.
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/auth",
+  "/forgot-password",
+  "/reset-password",
+];
 
 /**
  * Refreshes the Supabase auth session on every request and gates access:

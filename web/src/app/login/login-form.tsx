@@ -48,6 +48,15 @@ export function LoginForm({ next }: { next?: string }) {
         </button>
       </form>
 
+      <p className="mt-4 text-center text-sm">
+        <a
+          href="/forgot-password"
+          className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Forgot your password?
+        </a>
+      </p>
+
       <p className="mt-6 text-center text-xs text-neutral-500">
         Accounts are created by an administrator.
       </p>
