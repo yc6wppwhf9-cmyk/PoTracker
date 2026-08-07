@@ -273,13 +273,20 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
                     <thead className="text-left text-neutral-500">
                       <tr>
                         <th className="py-1 font-medium">Item</th>
+                        {/* Its own column. The code was tacked onto the end of
+                            the name, where it neither lined up nor could be
+                            scanned down — and it is the value the GRN register
+                            is matched on, so it is worth reading directly. */}
+                        <th className="py-1 font-medium">Item code</th>
                         <th className="py-1 font-medium">Lot</th>
                         {/* Per item: an order can be split across sites and
                             dates, so the header above may show none. */}
                         <th className="py-1 font-medium">ETD</th>
                         <th className="py-1 font-medium">Site</th>
                         <th className="py-1 text-right font-medium">Ordered</th>
-                        <th className="py-1 text-right font-medium">Received</th>
+                        {/* Received is dropped from the line: the card header
+                            already states it for the order as a whole, and
+                            Balance is the number that decides anything. */}
                         <th className="py-1 text-right font-medium">Balance</th>
                         <th className="py-1 text-right font-medium">Rate</th>
                         <th className="py-1 text-right font-medium">Value</th>
@@ -290,11 +297,9 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
                         const bal = it.ordered - it.received;
                         return (
                           <tr key={`${it.itemCode}-${it.lot}-${i}`}>
-                            <td className="py-1">
-                              {it.name ?? it.itemCode}{" "}
-                              <span className="font-mono text-neutral-400">
-                                {it.itemCode}
-                              </span>
+                            <td className="py-1">{it.name ?? it.itemCode}</td>
+                            <td className="py-1 font-mono text-neutral-500">
+                              {it.itemCode ?? "—"}
                             </td>
                             <td className="py-1 text-neutral-500">{it.lot ?? "—"}</td>
                             <td className="py-1 text-neutral-500">
@@ -305,9 +310,6 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
                             </td>
                             <td className="py-1 text-right tabular-nums">
                               {it.ordered.toLocaleString()}
-                            </td>
-                            <td className="py-1 text-right tabular-nums">
-                              {it.received.toLocaleString()}
                             </td>
                             <td
                               className={`py-1 text-right tabular-nums ${
