@@ -1,28 +1,24 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { ResetForm } from "./reset-form";
 
 /**
- * Where the emailed reset link lands.
+ * Where the reset form is shown, once /auth/callback has established a session.
  *
- * Supabase's newer links carry a one-time `code` that has to be exchanged for
- * a session before anything can be changed. Older links, and the implicit
- * flow, put tokens in the URL fragment instead — the server never sees a
- * fragment, so that case is handled in the client component.
+ * This page deliberately does NOT exchange the code any more. It used to, and
+ * could not work: a Server Component cannot write cookies, so the exchange
+ * spent the one-time code and then had nowhere to put the session. See
+ * src/app/auth/callback/route.ts.
+ *
+ * The implicit flow puts tokens in the URL fragment instead, which the server
+ * never sees — that case is still handled in the client component below.
  */
 export default async function ResetPasswordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ code?: string; error_description?: string }>;
+  searchParams: Promise<{ error_description?: string }>;
 }) {
-  const { code, error_description } = await searchParams;
-
-  let exchangeError: string | null = error_description ?? null;
-  if (code) {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) exchangeError = error.message;
-  }
+  const { error_description } = await searchParams;
+  const exchangeError: string | null = error_description ?? null;
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-neutral-50 px-4 dark:bg-neutral-950">

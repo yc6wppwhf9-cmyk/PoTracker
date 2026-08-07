@@ -30,7 +30,10 @@ export async function requestPasswordReset(
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("x-forwarded-host") ?? h.get("host");
-  const redirectTo = `${proto}://${host}/reset-password`;
+  // Via /auth/callback, not straight to the form. The code exchange has to
+  // happen somewhere cookies can be written, which a Server Component render
+  // is not — see that route for what went wrong when it did.
+  const redirectTo = `${proto}://${host}/auth/callback?next=/reset-password`;
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
