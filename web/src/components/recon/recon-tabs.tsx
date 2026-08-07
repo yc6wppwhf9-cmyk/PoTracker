@@ -223,6 +223,19 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
                   </td>
                   <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                     {fmt(r.ordered)}
+                    {/* An unsent draft is not an order — it commits nobody and
+                        costs nothing to abandon — so it is named separately
+                        rather than added in. Hiding it entirely would leave a
+                        buyer re-ordering material they had already allocated. */}
+                    {(r.drafted ?? 0) > 0 && (
+                      <div
+                        className="text-xs font-medium"
+                        style={{ color: "var(--st-pending)" }}
+                        title="In an unsent draft PO — not ordered yet"
+                      >
+                        +{fmt(r.drafted)} draft
+                      </div>
+                    )}
                   </td>
                   <td
                     className="px-4 py-3.5 text-right font-semibold tabular-nums"

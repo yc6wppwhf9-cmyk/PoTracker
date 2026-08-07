@@ -577,6 +577,7 @@ export type Database = {
         Row: {
           base_unit: string | null
           category: string | null
+          drafted: number | null
           expected_max: number | null
           item_code: string | null
           location: string | null
