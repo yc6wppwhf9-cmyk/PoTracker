@@ -111,27 +111,21 @@ export function LineDeliveryFields({
  * alone — invisible downstream and silent — so the button carries the whole
  * weight of the handover.
  *
- * The browser's confirm() dialog is gone: it interrupted the buyer on every
- * single PO, and a sheet produces one per supplier. The button confirms itself
- * instead — the first click turns it into "Confirm send", the second sends.
- * Same protection against a stray click, no modal, and it cannot be dismissed
- * by muscle memory the way a native dialog can.
+ * One click sends. There was a browser confirm(), then a two-step arm-and-
+ * confirm on the button; both were removed at the buyer's request. A sheet
+ * produces one PO per supplier, so either one taxed every send to guard
+ * against a mistake that is recoverable anyway — the PO team can be told
+ * before they attach the document.
  */
 export function SendPoBtn({ poId }: { poId: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [armed, setArmed] = useState(false);
 
   function onClick() {
     setError(null);
-    if (!armed) {
-      setArmed(true);
-      return;
-    }
     startTransition(async () => {
       const res = await sendPoToTeam(poId);
-      setArmed(false);
       if (res.error) setError(res.error);
       else router.refresh();
     });
@@ -144,27 +138,13 @@ export function SendPoBtn({ poId }: { poId: string }) {
           {error}
         </span>
       )}
-      {armed && !pending && (
-        <button
-          type="button"
-          onClick={() => setArmed(false)}
-          className="text-xs text-neutral-500 underline hover:text-neutral-800 dark:hover:text-neutral-200"
-        >
-          Cancel
-        </button>
-      )}
       <button
         type="button"
         onClick={onClick}
-        onBlur={() => setArmed(false)}
         disabled={pending}
-        className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:opacity-50 ${
-          armed
-            ? "bg-rose-600 hover:bg-rose-500"
-            : "bg-indigo-600 hover:bg-indigo-500"
-        }`}
+        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
       >
-        {pending ? "Sending…" : armed ? "Confirm send" : "Send to PO team"}
+        {pending ? "Sending…" : "Send to PO team"}
       </button>
     </span>
   );
