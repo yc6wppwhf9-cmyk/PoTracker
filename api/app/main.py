@@ -120,6 +120,10 @@ def health():
                 ]
             ),
             "cron_secret": bool(s.cron_secret),
+            # Length only, never the value. Enough to tell a correctly pasted
+            # 64-character secret from a placeholder or a truncated paste,
+            # which is otherwise only discoverable by a failing cron run.
+            "cron_secret_len": len(s.cron_secret),
             "imap_user": bool(s.imap_user),
             "imap_password": bool(s.imap_password),
             "service_account": bool(s.service_email and s.service_password),

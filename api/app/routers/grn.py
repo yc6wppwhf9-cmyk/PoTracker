@@ -243,7 +243,14 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
     # compare_digest, not ==, so the comparison cannot be timed to recover the
     # secret a character at a time. This header is the only thing standing
     # between the open internet and writing into the goods-received record.
-    if not hmac.compare_digest(x_cron_secret, settings.cron_secret):
+    #
+    # Compared as bytes: given str arguments compare_digest raises TypeError on
+    # anything outside ASCII, and a secret copied out of a browser can easily
+    # carry a non-breaking space or zero-width character. That surfaced as a 500
+    # on every run — an authentication problem wearing a server-error costume.
+    if not hmac.compare_digest(
+        x_cron_secret.encode("utf-8"), settings.cron_secret.encode("utf-8")
+    ):
         raise HTTPException(401, "Bad or missing X-Cron-Secret header.")
     if not settings.imap_user or not settings.imap_password:
         raise HTTPException(503, "IMAP_USER and IMAP_PASSWORD are not configured.")

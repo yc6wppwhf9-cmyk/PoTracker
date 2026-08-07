@@ -1,4 +1,5 @@
 import os
+import unicodedata
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -16,8 +17,14 @@ def env(name: str, default: str = "") -> str:
 
     Also strips surrounding quotes and whitespace, both of which survive a
     copy-paste and neither of which is ever meant literally.
+
+    Invisible formatting characters (zero-width spaces, a BOM, directional
+    marks) are removed outright. Copying a value out of a browser picks them up
+    silently, and they are never part of anything anyone meant to configure.
     """
-    raw = os.getenv(name, default).strip()
+    raw = os.getenv(name, default)
+    # Unicode category Cf — present in the text, absent from the screen.
+    raw = "".join(c for c in raw if unicodedata.category(c) != "Cf").strip()
     if raw.startswith(f"{name}="):
         raw = raw[len(name) + 1 :].strip()
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
@@ -41,7 +48,10 @@ class Settings:
     # --- Automated GRN fetch (Render Cron -> POST /grn/fetch-mail) ---
     # Shared secret the cron job presents. Without it the endpoint is closed:
     # it runs without a signed-in user, so nothing else identifies the caller.
-    cron_secret: str = env("CRON_SECRET")
+    # All whitespace removed, not just the ends: a non-breaking space picked up
+    # mid-value from a copy-paste is invisible in Render's form and a secret
+    # never legitimately contains one.
+    cron_secret: str = "".join(env("CRON_SECRET").split())
     # A Supabase account holding the po_team role. The job signs in as this
     # user so RLS still applies — deliberately not a service-role key, which
     # would bypass every policy in the database.
