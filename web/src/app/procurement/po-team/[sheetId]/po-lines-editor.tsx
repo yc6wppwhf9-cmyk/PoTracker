@@ -1,16 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { savePoLines, type LineEdit } from "../actions";
 import { shortSite } from "@/lib/sites";
 
+/**
+ * A PO line as the PO team sees it: entirely read-only.
+ *
+ * The name is kept because "the editor" is what this area of the screen is,
+ * and the type is referenced from the page.
+ */
 export type EditableLine = {
   id: string;
   item_code: string | null;
   name: string | null;
   lot: string | null;
-  /** What the PO is actually being raised for. Editable. */
+  /** What the PO is being raised for. The buyer's number, not the PO team's. */
   ordered_qty: number;
   /** Chosen by the buyer; shown here for reference. */
   supplier: string | null;
@@ -23,45 +26,8 @@ export type EditableLine = {
   site: string | null;
 };
 
-export function PoLinesEditor({
-  poId,
-  lines,
-  locked,
-}: {
-  poId: string;
-  lines: EditableLine[];
-  locked: boolean;
-}) {
-  const router = useRouter();
-  const [rows, setRows] = useState<Record<string, { qty: string }>>(
-    Object.fromEntries(lines.map((l) => [l.id, { qty: String(l.ordered_qty) }]))
-  );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  function set(id: string, field: "qty", value: string) {
-    setSaved(false);
-    setRows((r) => ({ ...r, [id]: { ...r[id], [field]: value } }));
-  }
-
-  async function onSave() {
-    setBusy(true);
-    setError(null);
-    const edits: LineEdit[] = lines.map((l) => ({
-      id: l.id,
-      ordered_qty: Number(rows[l.id]?.qty),
-    }));
-    const res = await savePoLines(poId, edits);
-    setBusy(false);
-    if (res.error) setError(res.error);
-    else {
-      setSaved(true);
-      router.refresh();
-    }
-  }
-
-  const total = lines.reduce((s, l) => s + (Number(rows[l.id]?.qty) || 0), 0);
+export function PoLinesEditor({ lines }: { lines: EditableLine[] }) {
+  const total = lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0);
 
   return (
     <div className="px-2 pb-4">
@@ -83,7 +49,7 @@ export function PoLinesEditor({
           </thead>
           <tbody>
             {lines.map((l) => {
-              const q = Number(rows[l.id]?.qty);
+              const q = Number(l.ordered_qty);
               return (
                 <tr
                   key={l.id}
@@ -92,19 +58,8 @@ export function PoLinesEditor({
                   <td className="px-3 py-2">{l.name ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-xs">{l.item_code}</td>
                   <td className="px-3 py-2 text-neutral-500">{l.lot ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    {locked ? (
-                      Number(l.ordered_qty).toLocaleString()
-                    ) : (
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={rows[l.id]?.qty ?? ""}
-                        onChange={(e) => set(l.id, "qty", e.target.value)}
-                        className="w-28 rounded-md border border-black/10 bg-white px-2 py-1 text-sm tabular-nums dark:border-white/15 dark:bg-neutral-950"
-                      />
-                    )}
+                  <td className="px-3 py-2 tabular-nums">
+                    {Number(l.ordered_qty).toLocaleString()}
                   </td>
                   {/* Per line, matching the signed document, which prints the
                       date and ship-to beside every item. */}
@@ -137,41 +92,14 @@ export function PoLinesEditor({
         </table>
       </div>
 
-      {!locked && (
-        <>
-          {error && (
-            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
-              {error}
-            </p>
-          )}
+      {/* The quantity is the buyer's decision and the signed document is
+          produced from it, so there is nothing to save here. An editable field
+          let the record be moved to match the paperwork, in the one place a
+          mismatch between the two is worth noticing. */}
+      <p className="mt-3 text-xs tabular-nums text-neutral-500">
+        PO total {total.toLocaleString()} · quantities are set by the buyer
+      </p>
 
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={busy}
-              className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
-            >
-              {busy ? "Saving…" : "Save PO quantities"}
-            </button>
-            <span className="text-xs tabular-nums text-neutral-500">
-              PO total {total.toLocaleString()}
-            </span>
-            {saved && (
-              <span className="text-xs text-green-700 dark:text-green-400">
-                ✓ Saved
-              </span>
-            )}
-          </div>
-        </>
-      )}
-
-      {locked && (
-        <p className="mt-3 text-xs text-neutral-500">
-          The document is attached, so quantities are locked. Detach or raise a
-          new PO to change them.
-        </p>
-      )}
     </div>
   );
 }

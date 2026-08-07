@@ -160,8 +160,6 @@ export default async function PoTeamSheetPage({
                   <span className="hidden group-open:inline">▾ Hide line items</span>
                 </summary>
                 <PoLinesEditor
-                  poId={p.id}
-                  locked={Boolean(p.doc_path)}
                   lines={lines.map((l) => ({
                     id: l.id,
                     item_code: l.item_code,

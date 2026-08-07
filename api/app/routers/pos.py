@@ -1,6 +1,7 @@
 import hashlib
 import io
 import re
+from datetime import datetime, timezone
 from typing import Any, Optional
 import openpyxl
 
@@ -91,12 +92,32 @@ def upload_po_document(
         raise HTTPException(400, "Uploaded file is empty.")
 
     # Confirm the PO exists and is visible to this user (RLS: po_select).
-    po = user.client.table("po").select("id, rm_sheet_id").eq("id", po_id).limit(1).execute()
+    po = (
+        user.client.table("po")
+        .select("id, rm_sheet_id, doc_path, po_number")
+        .eq("id", po_id)
+        .limit(1)
+        .execute()
+    )
     if not po.data:
         raise HTTPException(404, "PO not found.")
 
+    previous_path = po.data[0].get("doc_path")
+
     ext = "." + filename.lower().rsplit(".", 1)[-1]
-    path = f"{po_id}/document{ext}"
+    # Each upload gets its own object rather than overwriting `document.ext`.
+    #
+    # Attaching a second document used to replace the first in place — the
+    # bytes of the signed PO an approver had already read were gone, with no
+    # copy anywhere. Worse, replacing a .pdf with a .xlsx wrote to a different
+    # name, so the original stayed in storage unreferenced while the record
+    # pointed elsewhere: sometimes overwritten, sometimes orphaned, depending
+    # on the file extension.
+    #
+    # The timestamp makes the path unique, so nothing is ever destroyed and the
+    # audit trail's paths still resolve to the bytes they described.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = f"{po_id}/{stamp}-document{ext}"
 
     content_type = {
         ".pdf": "application/pdf",
@@ -108,8 +129,11 @@ def upload_po_document(
     }.get(ext, "application/octet-stream")
 
     try:
+        # upsert deliberately off: the path is unique per upload, so a clash
+        # means something is wrong and should be an error rather than a
+        # silently discarded document.
         user.client.storage.from_("po-docs").upload(
-            path, data, {"content-type": content_type, "upsert": "true"}
+            path, data, {"content-type": content_type, "upsert": "false"}
         )
     except Exception as e:
         raise HTTPException(502, f"Storage upload failed: {e}")
@@ -129,7 +153,15 @@ def upload_po_document(
     if resolved:
         fields["po_number"] = resolved
 
-    warning: Optional[str] = None
+    # Replacing an attached document is allowed — a wrong or unsigned file gets
+    # attached and has to be correctable — but it is said out loud. The
+    # approver may already have read the document being replaced.
+    warning: Optional[str] = (
+        "This PO already had a document attached; it has been replaced. The "
+        "previous file is kept and the change is recorded in the audit log."
+        if previous_path
+        else None
+    )
     try:
         upd = user.client.table("po").update(fields).eq("id", po_id).execute()
     except Exception as e:
@@ -139,11 +171,12 @@ def upload_po_document(
         # retry fails the same way. Attach it, and report the number separately
         # for someone to correct — which the PO number field on the card allows.
         if resolved and _is_duplicate_po_number(e):
-            warning = (
+            dupe = (
                 f"The document is attached, but PO number {resolved} already "
                 "belongs to another purchase order, so it was not saved. Check "
                 "the number on the document and set it on this PO."
             )
+            warning = f"{warning} {dupe}" if warning else dupe
             fields.pop("po_number", None)
             resolved = None
             try:
@@ -164,6 +197,9 @@ def upload_po_document(
             "detail": {
                 "filename": filename,
                 "path": path,
+                # What it replaced, so the trail says which document an
+                # approval was given against.
+                "replaced_path": previous_path,
                 "po_number": resolved,
                 "po_number_source": "typed" if typed else ("extracted" if extracted else None),
             },
