@@ -81,6 +81,32 @@ def test_subject_filter_is_applied_when_set():
     assert ok
 
 
+def test_subject_matching_ignores_how_the_spaces_fall():
+    """The real register arrives as "GRN  REPORT" — two spaces.
+
+    A filter of "GRN REPORT" is what anyone would type, looks identical in
+    every mail client, and matched nothing at all: twenty messages checked,
+    the register skipped as "subject does not match".
+    """
+    ok, _ = should_process(_mail(subject="GRN  REPORT"), ALLOWED, "GRN REPORT")
+    assert ok
+
+    # And the reverse, in case the extra space is the one that was configured.
+    ok, _ = should_process(_mail(subject="GRN REPORT"), ALLOWED, "GRN  REPORT")
+    assert ok
+
+    # Leading and trailing space, which survives a paste into a config form.
+    ok, _ = should_process(_mail(subject="GRN  REPORT"), ALLOWED, "  grn report ")
+    assert ok
+
+
+def test_subject_filter_still_excludes_a_different_report():
+    """Collapsing whitespace must not turn the filter into a wildcard."""
+    ok, why = should_process(_mail(subject="Purchase Order(PO)"), ALLOWED, "GRN REPORT")
+    assert not ok
+    assert "subject" in why
+
+
 def test_decodes_an_encoded_subject_and_sender():
     """Real mail headers are often RFC 2047 encoded."""
     m = _mail()

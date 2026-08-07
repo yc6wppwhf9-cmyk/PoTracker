@@ -59,6 +59,11 @@ def spreadsheet_attachments(msg: Message) -> list[tuple[str, bytes]]:
     return out
 
 
+def _squash(s: str) -> str:
+    """Lower-cased, with every run of whitespace reduced to one space."""
+    return " ".join(s.split()).lower()
+
+
 def should_process(
     msg: Message,
     allowed_senders: Iterable[str],
@@ -76,8 +81,14 @@ def should_process(
         return False, f"sender {frm or '(unknown)'} is not allowed"
 
     if subject_contains:
-        subject = _decode(msg.get("Subject")).lower()
-        if subject_contains.lower() not in subject:
+        # Whitespace collapsed on both sides before comparing. The real subject
+        # is "GRN  REPORT" with two spaces, and a filter of "GRN REPORT"
+        # therefore matched nothing while looking exactly right — the gap is
+        # invisible in every mail client and in Render's form alike. Line
+        # breaks folded into long subjects by the mail transport are the same
+        # problem arriving a different way.
+        subject = _squash(_decode(msg.get("Subject")))
+        if _squash(subject_contains) not in subject:
             return False, "subject does not match"
 
     if not spreadsheet_attachments(msg):
