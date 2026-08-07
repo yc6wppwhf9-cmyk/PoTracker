@@ -61,9 +61,15 @@ class Settings:
     imap_host: str = env("IMAP_HOST", "imap.gmail.com")
     imap_user: str = env("IMAP_USER")
     # Google shows an app password as four groups of four for readability, and
-    # it is invariably pasted that way. The spaces are presentation, not part
-    # of the secret, and IMAP login fails with them.
-    imap_password: str = env("IMAP_PASSWORD").replace(" ", "")
+    # it is invariably pasted that way. The gaps are presentation, not part of
+    # the secret.
+    #
+    # split() rather than replace(" ", ""): what Google renders is a
+    # NON-BREAKING space, and IMAP encodes the login as ASCII, so one survived
+    # the obvious fix and failed as "'ascii' codec can't encode character
+    # '\xa0'" — a message that names an encoding rather than the password it
+    # came from.
+    imap_password: str = "".join(env("IMAP_PASSWORD").split())
     imap_folder: str = env("IMAP_FOLDER", "INBOX")
     # Only mail from these addresses (or domains) is imported.
     grn_allowed_senders: list[str] = [

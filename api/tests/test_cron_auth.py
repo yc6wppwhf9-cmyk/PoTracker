@@ -103,6 +103,22 @@ def test_a_pasted_key_equals_value_line_is_still_understood(monkeypatch):
     assert _configured_secret(monkeypatch, f"CRON_SECRET={SECRET}") == SECRET
 
 
+def test_gmail_app_password_loses_its_display_gaps(monkeypatch):
+    """Google renders the 16 characters as four groups, using NON-BREAKING
+    spaces. IMAP encodes the login as ASCII and rejects one outright, so the
+    obvious replace(" ", "") left the password looking correct and still
+    failing -- as "'ascii' codec can't encode character '\xa0'", a message
+    that names an encoding rather than the password it came from."""
+    shown = " ".join(["wqtg", "lxyo", "cehx", "glup"])
+    monkeypatch.setenv("IMAP_PASSWORD", shown)
+    assert importlib.reload(app.config).Settings().imap_password == "wqtglxyocehxglup"
+
+
+def test_app_password_with_ordinary_spaces_also_works(monkeypatch):
+    monkeypatch.setenv("IMAP_PASSWORD", "wqtg lxyo cehx glup")
+    assert importlib.reload(app.config).Settings().imap_password == "wqtglxyocehxglup"
+
+
 def test_ordinary_values_are_untouched(monkeypatch):
     """The stripping must not damage a value that was always fine."""
     monkeypatch.setenv("RESEND_FROM", "PoTracker <potracker@hscvpl.in>")
