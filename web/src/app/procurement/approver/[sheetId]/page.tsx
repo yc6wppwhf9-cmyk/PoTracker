@@ -5,8 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { type ReconRow } from "@/lib/reconciliation";
-import { ReconTabs } from "@/components/recon/recon-tabs";
-import { EscalationPanel } from "./escalation-panel";
+import { ReconWithEscalation } from "./recon-with-escalation";
 import { ExportButton } from "@/components/recon/export-button";
 import { formatDateTime } from "@/lib/format";
 
@@ -45,9 +44,6 @@ export default async function ApproverSheetDetailPage({
     .eq("rm_sheet_id", sheetId)
     .limit(1);
   const approval = approvalRows?.[0];
-
-  const counts: Record<string, number> = {};
-  for (const r of recon) if (r.status) counts[r.status] = (counts[r.status] ?? 0) + 1;
 
   const isSentToMd = Boolean(approval?.sent_to_md_at);
 
@@ -114,13 +110,8 @@ export default async function ApproverSheetDetailPage({
             No items to display for this sheet.
           </p>
         ) : (
-          <ReconTabs rows={recon} />
+          <ReconWithEscalation rows={recon} sheetId={sheetId} />
         )}
-      </div>
-
-      {/* Escalate flagged materials to their buyers */}
-      <div className="mt-10">
-        <EscalationPanel sheetId={sheetId} />
       </div>
     </AppShell>
   );

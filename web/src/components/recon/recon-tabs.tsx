@@ -27,7 +27,18 @@ function variancePct(required: number | null, variance: number): string {
   })}%`;
 }
 
-export function ReconTabs({ rows }: { rows: ReconRow[] }) {
+export function ReconTabs({
+  rows,
+  active: controlledActive,
+  onActiveChange,
+}: {
+  rows: ReconRow[];
+  /** Optional. Supply both to let a parent follow the selected KPI — the
+   *  approver's escalation panel is shown only for the status being looked
+   *  at. Omit both and the tabs manage their own selection as before. */
+  active?: ReconStatus;
+  onActiveChange?: (s: ReconStatus) => void;
+}) {
   const [searchQuery, setSearchQuery] = useState("");
 
   const counts = useMemo(() => {
@@ -38,7 +49,12 @@ export function ReconTabs({ rows }: { rows: ReconRow[] }) {
 
   const firstNonEmpty =
     STATUS_ORDER.find((s) => (counts[s] ?? 0) > 0) ?? "on_target";
-  const [active, setActive] = useState<ReconStatus>(firstNonEmpty);
+  const [uncontrolled, setUncontrolled] = useState<ReconStatus>(firstNonEmpty);
+  const active = controlledActive ?? uncontrolled;
+  const setActive = (s: ReconStatus) => {
+    setUncontrolled(s);
+    onActiveChange?.(s);
+  };
 
   const visible = useMemo(() => {
     return rows.filter((r) => {

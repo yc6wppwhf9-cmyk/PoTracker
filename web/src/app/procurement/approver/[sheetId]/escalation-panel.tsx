@@ -28,7 +28,17 @@ type Escalation = {
 
 const lotKey = (c: string, l: string | null) => `${c}__${l ?? ""}`;
 
-export function EscalationPanel({ sheetId }: { sheetId: string }) {
+export function EscalationPanel({
+  sheetId,
+  status,
+}: {
+  sheetId: string;
+  /** Limit to one reconciliation status. The panel used to list every flagged
+   *  line on the sheet, which on a real sheet is thousands of rows sitting
+   *  under the table whether or not anyone was looking at them. It now shows
+   *  the status the approver has selected above. */
+  status?: string;
+}) {
   const supabase = createClient();
   const [items, setItems] = useState<FlaggedItem[]>([]);
   const [unassigned, setUnassigned] = useState(0);
@@ -41,17 +51,17 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
   const load = useCallback(async () => {
     // Flagged reconciliation lines (anything not on target). Paged — a
     // truncated read would hide flagged items the approver needs to escalate.
-    const recon = await fetchAll((from, to) =>
-      supabase
+    const recon = await fetchAll((from, to) => {
+      const q = supabase
         .from("reconciliation")
         .select("item_code, lot, name, status")
-        .eq("rm_sheet_id", sheetId)
-        .neq("status", "on_target")
+        .eq("rm_sheet_id", sheetId);
+      return (status ? q.eq("status", status) : q.neq("status", "on_target"))
         .order("item_code")
         .order("lot")
         .order("location")
-        .range(from, to)
-    );
+        .range(from, to);
+    });
 
     // Assigned buyer per (item, lot).
     const reqs = await fetchAll((from, to) =>
@@ -140,7 +150,7 @@ export function EscalationPanel({ sheetId }: { sheetId: string }) {
     setUnassigned(unassignedFlagged);
     setEscalations((esc ?? []) as Escalation[]);
     setLoading(false);
-  }, [supabase, sheetId]);
+  }, [supabase, sheetId, status]);
 
   useEffect(() => {
     // The panel loads its own data because it also reloads after an escalation
