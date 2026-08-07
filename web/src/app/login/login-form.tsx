@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { signIn, type AuthState } from "./actions";
+import { BrandHeader } from "@/components/brand";
 
 const initial: AuthState = { error: null };
 
@@ -10,10 +11,8 @@ export function LoginForm({ next }: { next?: string }) {
 
   return (
     <div className="w-full max-w-sm rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-neutral-900">
-      <h1 className="text-xl font-semibold tracking-tight">
-        RM → PO Reconciliation
-      </h1>
-      <p className="mt-1 text-sm text-neutral-500">Sign in to continue.</p>
+      <BrandHeader />
+      <p className="text-center text-sm text-neutral-500">Sign in to continue.</p>
 
       <form action={formAction} className="mt-6 space-y-4">
         {next ? <input type="hidden" name="next" value={next} /> : null}

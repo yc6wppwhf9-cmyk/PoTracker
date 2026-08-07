@@ -175,7 +175,10 @@ export default async function DashboardPage() {
   // The server runs in UTC, so reading its clock greeted people with "Good
   // morning" in the middle of the afternoon.
   const hour = hourInBusinessZone();
-  const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  // Evening from 5pm. 18 was the boundary and made 5:42pm "Good afternoon",
+  // which is not what the clock on the wall says here.
+  const greet =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   return (
     <AppShell profile={profile}>

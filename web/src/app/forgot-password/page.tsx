@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { ForgotForm } from "./forgot-form";
+import { BrandHeader } from "@/components/brand";
 
 export default function ForgotPasswordPage() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-neutral-50 px-4 dark:bg-neutral-950">
       <div className="w-full max-w-sm rounded-2xl border border-black/10 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-neutral-900">
-        <h1 className="text-xl font-semibold tracking-tight">
+        <BrandHeader />
+        <h1 className="text-center text-base font-semibold tracking-tight">
           Reset your password
         </h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-center text-sm text-neutral-500">
           We will email you a link to set a new one.
         </p>
 

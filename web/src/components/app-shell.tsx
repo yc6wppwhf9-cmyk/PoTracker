@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { BrandMark } from "@/components/brand";
 import { usePathname } from "next/navigation";
 import type { SessionProfile } from "@/lib/auth";
 import type { AppRole } from "@/lib/database.types";
@@ -205,8 +206,8 @@ export function AppShell({
 
             {/* App Brand Logo */}
             <Link href="/dashboard" className="group flex items-center gap-3 font-bold tracking-tight">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-blue-500 text-white shadow-md shadow-indigo-500/25 text-xs font-black ring-2 ring-indigo-500/20 group-hover:scale-105 transition-transform">
-                RM
+              <span className="transition-transform group-hover:scale-105">
+                <BrandMark size={36} />
               </span>
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
