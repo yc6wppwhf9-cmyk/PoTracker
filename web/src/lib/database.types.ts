@@ -563,6 +563,30 @@ export type Database = {
       }
     }
     Views: {
+      grn_ours: {
+        Row: {
+          department: string | null
+          doc_date: string | null
+          doc_no: string | null
+          grc_date: string | null
+          grc_no: string
+          id: string
+          imported_at: string
+          imported_by: string | null
+          item_code: string | null
+          item_name: string | null
+          landed_cost: number | null
+          lot: string | null
+          po_date: string | null
+          po_number: string | null
+          qty: number
+          raw: Json | null
+          remarks: string | null
+          stock_point: string | null
+          supplier: string | null
+        }
+        Relationships: []
+      }
       po_delivery: {
         Row: {
           distinct_etds: number | null

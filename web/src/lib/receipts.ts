@@ -43,7 +43,7 @@ export async function getReceipts(limit = 200): Promise<ReceiptRow[]> {
   const supabase = await createClient();
 
   const { data: recent } = await supabase
-    .from("grn")
+    .from("grn_ours")
     .select("grc_no, grc_date, po_number, item_code, lot, qty, supplier")
     .order("grc_date", { ascending: false })
     .limit(limit);
@@ -82,7 +82,7 @@ export async function getReceipts(limit = 200): Promise<ReceiptRow[]> {
       qty: number;
     }>((from, to) =>
       supabase
-        .from("grn")
+        .from("grn_ours")
         .select("po_number, item_code, qty")
         .in("po_number", poNumbers)
         .order("id")

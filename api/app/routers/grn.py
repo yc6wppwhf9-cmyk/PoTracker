@@ -97,18 +97,18 @@ def import_grn_register(
     # The workbook bytes are no longer needed and the instance is small.
     del data
 
-    # Only receipts against a purchase order raised here are kept.
+    # Everything is stored; the register SCREENS show only what can be
+    # reconciled, via the grn_ours view.
     #
-    # The register is company-wide: it carries every goods receipt Ginesys
-    # records, most of them against orders this system never saw. Storing all
-    # of it made the GRN register a second copy of the ERP's data that nobody
-    # here can act on, and buried the lines that do matter.
+    # Filtering on the way in was tried and reverted. It gave the same clean
+    # screen but lost data: a receipt arriving before the PO team captured the
+    # number off its document was dropped and never retried, because the next
+    # register carries a GRC we then have no record of having seen — the
+    # material would show as never delivered. Stored and filtered at read time,
+    # a PO number captured late brings its receipts into view instead.
     matched = _match_summary(user, rows)
-    keep = _rows_for_known_pos(user, rows)
-    dropped = len(rows) - len(keep)
-
-    inserted, grc_numbers = _store(user, keep) if keep else (0, [])
-    over = _over_receipts(user, keep)
+    inserted, grc_numbers = _store(user, rows)
+    over = _over_receipts(user, rows)
 
     # No mail is sent for a receipt. An import matches hundreds of lines at
     # once, so a notification per import is either noise or a summary nobody
@@ -125,7 +125,6 @@ def import_grn_register(
                 "filename": filename,
                 "receipts": len(grc_numbers),
                 "lines": inserted,
-                "ignored_not_our_po": dropped,
                 **matched["counts"],
             },
         }
@@ -134,10 +133,6 @@ def import_grn_register(
     return {
         "imported": inserted,
         "receipts": len(grc_numbers),
-        # Named, not silent. A register that imports 4 of 900 lines is either
-        # working exactly as intended or a sign that PO numbers are not being
-        # captured, and the two look identical without this number.
-        "ignored_not_our_po": dropped,
         "merged_duplicate_lines": parsed["merged"],
         "skipped_no_grc": parsed["skipped_no_grc"],
         "skipped_no_qty": parsed["skipped_no_qty"],
@@ -185,15 +180,12 @@ def _rows_for_known_pos(
 ) -> list[dict[str, Any]]:
     """Keep only receipt lines whose PO number exists in this system.
 
-    A line with no PO number is dropped too: without one it can never be tied
-    to an order, so it would sit in the register forever as a row nobody can
-    reconcile.
+    Used for REPORTING only — every line is stored regardless. The register
+    screens read the grn_ours view, which applies the same rule at read time so
+    a PO number captured after the delivery brings its receipts into view.
 
-    The cost of this is a timing one, and it is real: a receipt arriving before
-    the PO team has captured the number off the document is dropped and is not
-    reprocessed, because the next register carries a GRC we then have no record
-    of having seen. `ignored_not_our_po` in the import result is what makes
-    that visible — if it is large, PO numbers are lagging behind deliveries.
+    A line with no PO number counts as not ours: without one it can never be
+    tied to an order.
     """
     pos = fetch_all(
         lambda: user.client.table("po")
@@ -375,16 +367,12 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
                         "BARCODE, QTY)"
                     )
                 rows = parsed["rows"]
-                # Same rule as the manual import: only receipts against a
-                # purchase order raised here. The emailed register is
-                # company-wide, so most of it belongs to orders this system
-                # never saw.
-                keep = _rows_for_known_pos(acting, rows) if rows else []
-                dropped = len(rows) - len(keep)
-                inserted = _store(acting, keep)[0] if keep else 0
-                # The count of ignored lines goes in the log detail even on a
-                # clean run: "imported 0" and "imported 0 of 900, none ours"
-                # are different situations and only one needs looking at.
+                inserted = _store(acting, rows)[0] if rows else 0
+                # How much of it is ours is recorded alongside, because
+                # "imported 900 lines" and "imported 900, 4 of them against
+                # our POs" are different situations and only one is worth a
+                # look. Nothing is discarded either way.
+                ours = len(_rows_for_known_pos(acting, rows)) if rows else 0
                 _log_mail(
                     acting,
                     mid,
@@ -392,9 +380,7 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
                     subject,
                     filename,
                     "imported",
-                    f"{dropped} line(s) ignored — PO not raised here"
-                    if dropped
-                    else None,
+                    f"{ours} of {inserted} line(s) match a PO raised here",
                     inserted,
                 )
                 imported_total += inserted
@@ -404,7 +390,7 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
                         "file": filename,
                         "status": "imported",
                         "lines": inserted,
-                        "ignored_not_our_po": dropped,
+                        "lines_for_our_pos": ours,
                     }
                 )
             except Exception as e:

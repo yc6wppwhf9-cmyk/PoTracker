@@ -102,7 +102,7 @@ export async function getPendingPos(buyerId?: string): Promise<PendingLine[]> {
         qty: number;
       }>((from, to) =>
         supabase
-          .from("grn")
+          .from("grn_ours")
           .select("po_number, item_code, qty")
           .in("po_number", poNumbers)
           .order("id")

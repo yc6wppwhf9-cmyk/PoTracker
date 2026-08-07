@@ -110,11 +110,12 @@ a message is only flagged once its contents are safely stored.
    flag is not relied on alone — a person opening the mail would mark it read,
    and the register would then never be imported at all.
 3. Sender and subject are checked, then every `.xlsx` attachment is parsed.
-4. Receipt lines whose PO number matches a purchase order raised in this
-   system are stored, replacing any lines already held for the same GRC number.
-   **Everything else is discarded** — the register is company-wide and most of
-   it belongs to orders this system never saw. The number ignored is recorded
-   against the message.
+4. Every receipt line is stored, replacing any lines already held for the same
+   GRC number. The register is company-wide, so most lines belong to orders
+   this system never raised — those are **kept but hidden**: the screens read
+   the `grn_ours` view, which shows only receipts matching a PO number here.
+   A number captured after the delivery therefore brings its receipts into
+   view, rather than having thrown them away.
 5. Only after that does the message get marked read. A crash midway leaves it
    unread, so the next run retries rather than losing a delivery.
 
@@ -144,4 +145,4 @@ To test without waiting, run the cron command by hand — it is safe to repeat.
 | Rows say `skipped` | Sender not in `GRN_ALLOWED_SENDERS`, or subject filter too narrow |
 | Rows say `failed` | The attachment did not parse — `detail` says why |
 | Imported, but `unmatched_lines` is high | PO numbers were never captured from their documents |
-| `imported` but 0 lines, large `ignored_not_our_po` | Normal if the register is mostly other orders. If it stays high for POs you did raise, the PO team has not captured their numbers — and a receipt arriving before its number is captured is dropped and not retried |
+| Imported thousands of lines but the register screen is empty | Expected: the screens show only receipts matching a PO raised here. `select count(*) from grn_ours` is what they display. Nothing is lost — capture the PO number and its receipts appear |

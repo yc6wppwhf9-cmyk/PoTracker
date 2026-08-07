@@ -93,7 +93,7 @@ export async function getOverReceipts(): Promise<OverReceiptLine[]> {
     grc_date: string | null;
   }>((from, to) =>
     supabase
-      .from("grn")
+      .from("grn_ours")
       .select("po_number, item_code, lot, qty, grc_no, grc_date")
       .in("po_number", poNumbers)
       .order("id")

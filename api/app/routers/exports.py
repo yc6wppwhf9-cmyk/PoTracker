@@ -278,7 +278,7 @@ def _ordered_and_received(user: CurrentUser) -> tuple[dict, dict, dict]:
 
     received: dict[tuple[str, str], float] = {}
     grn = fetch_all(
-        lambda: user.client.table("grn").select("po_number, item_code, qty"),
+        lambda: user.client.table("grn_ours").select("po_number, item_code, qty"),
         order_by="id",
     )
     for g in grn:
@@ -303,7 +303,7 @@ def export_grn_register(user: CurrentUser = Depends(get_current_user)):
     require_roles(user, "approver", "md", "purchase_head", "po_team")
 
     rows = fetch_all(
-        lambda: user.client.table("grn").select(
+        lambda: user.client.table("grn_ours").select(
             "grc_no, grc_date, po_number, po_date, item_code, item_name, lot, "
             "qty, supplier, stock_point, department, doc_no, doc_date, "
             "landed_cost, remarks"
