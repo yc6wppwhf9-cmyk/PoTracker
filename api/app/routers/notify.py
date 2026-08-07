@@ -338,13 +338,11 @@ class PoDrafted(BaseModel):
 def notify_po_drafted(
     payload: PoDrafted, user: CurrentUser = Depends(get_current_user)
 ):
-    """Buyer sent a PO — tell the PO team, and confirm it back to the buyer.
+    """Buyer sent a PO — tell the PO team.
 
-    The buyer is copied because sending is the point they hand the order over
-    and stop being able to edit it. A confirmation naming the supplier and
-    quantity is how a mistake — the wrong supplier, a quantity typed twice — is
-    caught while it can still be corrected by the PO team rather than after the
-    document is signed.
+    Only the PO team. The buyer is the one who pressed send, so mailing them
+    about it is telling someone what they just did — and with one PO per
+    supplier, a sheet would produce a dozen such mails in a minute.
     """
     require_roles(user, "buyer")
     po = (
@@ -388,29 +386,11 @@ def notify_po_drafted(
         + _button(app_url(f"/procurement/po-team/{sheet_id}"), "Open PO team"),
     )
 
-    # Copied to the buyer, and never allowed to fail the handover: the PO team
-    # has already been told, and that is the notification the workflow depends
-    # on.
-    to_buyer: dict[str, Any] = {"sent": False, "skipped": True, "reason": "no buyer"}
-    buyer_email = email_of(user.client, row["created_by"]) if row.get("created_by") else None
-    if buyer_email:
-        try:
-            to_buyer = send_email(
-                [buyer_email],
-                f"Your PO is with the PO team — {supplier}",
-                f"<p>Your purchase order on <strong>{ref}</strong> has been sent "
-                "to the PO team, who will attach the signed document.</p>"
-                + detail
-                + "<p>It can no longer be edited here. If something is wrong, "
-                "tell the PO team before the document is attached.</p>"
-                + _button(
-                    app_url(f"/procurement/buyer/{sheet_id}"), "Open your sheet"
-                ),
-            )
-        except Exception as e:
-            to_buyer = {"sent": False, "error": str(e)}
-
-    return {"po_team": to_team, "buyer": to_buyer, **to_team}
+    # The buyer is NOT copied. They pressed the button, the screen already
+    # tells them it worked, and a sheet produces one PO per supplier — so a
+    # confirmation per send is a dozen mails telling someone what they just
+    # did. Notification is for people who would not otherwise know.
+    return to_team
 
 
 @router.post("/md-escalations")

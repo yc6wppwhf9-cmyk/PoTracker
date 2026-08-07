@@ -208,11 +208,7 @@ export default async function BuyerSheetPage({
                         </span>
                       )}
                       {p.status === "draft" && (
-                        <SendPoBtn
-                          poId={p.id}
-                          supplier={supplierOf(poLines)}
-                          lineCount={poLines.length}
-                        />
+                        <SendPoBtn poId={p.id} />
                       )}
                     </span>
                   </div>

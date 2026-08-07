@@ -33,6 +33,7 @@ export function BulkSendProvider({
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<{
     sent: number;
@@ -57,17 +58,14 @@ export function BulkSendProvider({
     setSelected(new Set(draftIds));
   }
 
+  // Confirms on the button rather than in a browser dialog — see SendPoBtn.
   function send() {
     if (live.length === 0) return;
-    if (
-      !confirm(
-        `Send ${live.length} PO draft(s) to the PO team?\n\n` +
-          "They will be emailed and can then attach the signed documents. " +
-          "You will not be able to edit these POs afterwards."
-      )
-    )
+    if (!armed) {
+      setArmed(true);
       return;
-
+    }
+    setArmed(false);
     setResult(null);
     startTransition(async () => {
       const res = await sendPosToTeam(live);
@@ -97,11 +95,29 @@ export function BulkSendProvider({
           <button
             type="button"
             onClick={send}
+            onBlur={() => setArmed(false)}
             disabled={pending || live.length === 0}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-40"
+            className={`rounded-lg px-3 py-1.5 font-semibold text-white transition disabled:opacity-40 ${
+              armed
+                ? "bg-rose-600 hover:bg-rose-500"
+                : "bg-indigo-600 hover:bg-indigo-500"
+            }`}
           >
-            {pending ? "Sending…" : `Send ${live.length || ""} selected`.trim()}
+            {pending
+              ? "Sending…"
+              : armed
+                ? `Confirm — send ${live.length}`
+                : `Send ${live.length || ""} selected`.trim()}
           </button>
+          {armed && !pending && (
+            <button
+              type="button"
+              onClick={() => setArmed(false)}
+              className="text-neutral-500 underline hover:text-neutral-800 dark:hover:text-neutral-200"
+            >
+              Cancel
+            </button>
+          )}
 
           {result && (
             <span className="w-full">

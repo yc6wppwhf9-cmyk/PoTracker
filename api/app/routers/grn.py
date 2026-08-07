@@ -275,11 +275,22 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
     # Messages already handled. The mailbox read-flag alone is not enough: a
     # person opening the mail would mark it read and the register would then
     # never be imported at all.
+    #
+    # Only messages actually IMPORTED block a retry. A message skipped because
+    # it did not match the sender or subject filter was skipped by
+    # configuration, not by anything about the message — and correcting that
+    # configuration has to be able to pick it up. The real register was lost
+    # exactly this way: the subject filter said "GRN REPORT", the subject read
+    # "GRN  REPORT", and the one message that mattered was consumed and
+    # recorded as handled before the filter was fixed.
     ids = [message_id(m["msg"]) for m in messages]
     seen = (
-        acting.client.table("grn_mail").select("message_id").in_("message_id", ids).execute()
+        acting.client.table("grn_mail")
+        .select("message_id, status")
+        .in_("message_id", ids)
+        .execute()
     ).data or []
-    seen_ids = {r["message_id"] for r in seen}
+    seen_ids = {r["message_id"] for r in seen if r.get("status") == "imported"}
 
     results: list[dict[str, Any]] = []
     imported_total = 0
@@ -299,8 +310,11 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             msg, settings.grn_allowed_senders, settings.grn_subject_contains
         )
         if not ok:
+            # Recorded, but deliberately NOT marked read. Someone else's mail
+            # is not ours to touch, and leaving the flag alone is what lets a
+            # corrected filter find the message on the next run. Re-reading a
+            # handful of headers every five minutes costs nothing.
             _log_mail(acting, mid, frm, subject, None, "skipped", why, 0)
-            done_uids.append(entry["uid"])
             results.append({"message": subject, "status": "skipped", "detail": why})
             continue
 

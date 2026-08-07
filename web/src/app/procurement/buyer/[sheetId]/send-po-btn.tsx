@@ -109,35 +109,29 @@ export function LineDeliveryFields({
 /**
  * Hands a draft to the PO team. Until this is pressed the PO is the buyer's
  * alone — invisible downstream and silent — so the button carries the whole
- * weight of the handover and says what it will do before doing it.
+ * weight of the handover.
+ *
+ * The browser's confirm() dialog is gone: it interrupted the buyer on every
+ * single PO, and a sheet produces one per supplier. The button confirms itself
+ * instead — the first click turns it into "Confirm send", the second sends.
+ * Same protection against a stray click, no modal, and it cannot be dismissed
+ * by muscle memory the way a native dialog can.
  */
-export function SendPoBtn({
-  poId,
-  supplier,
-  lineCount,
-}: {
-  poId: string;
-  supplier: string | null;
-  lineCount: number;
-}) {
+export function SendPoBtn({ poId }: { poId: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [armed, setArmed] = useState(false);
 
-  function onSend() {
+  function onClick() {
     setError(null);
-    const who = supplier ? `for ${supplier}` : "";
-    if (
-      !confirm(
-        `Send this PO ${who} (${lineCount} line(s)) to the PO team?\n\n` +
-          "They will be emailed and can then attach the signed document. " +
-          "You will not be able to edit it afterwards."
-      )
-    )
+    if (!armed) {
+      setArmed(true);
       return;
-
+    }
     startTransition(async () => {
       const res = await sendPoToTeam(poId);
+      setArmed(false);
       if (res.error) setError(res.error);
       else router.refresh();
     });
@@ -150,13 +144,27 @@ export function SendPoBtn({
           {error}
         </span>
       )}
+      {armed && !pending && (
+        <button
+          type="button"
+          onClick={() => setArmed(false)}
+          className="text-xs text-neutral-500 underline hover:text-neutral-800 dark:hover:text-neutral-200"
+        >
+          Cancel
+        </button>
+      )}
       <button
         type="button"
-        onClick={onSend}
+        onClick={onClick}
+        onBlur={() => setArmed(false)}
         disabled={pending}
-        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
+        className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:opacity-50 ${
+          armed
+            ? "bg-rose-600 hover:bg-rose-500"
+            : "bg-indigo-600 hover:bg-indigo-500"
+        }`}
       >
-        {pending ? "Sending…" : "Send to PO team"}
+        {pending ? "Sending…" : armed ? "Confirm send" : "Send to PO team"}
       </button>
     </span>
   );
