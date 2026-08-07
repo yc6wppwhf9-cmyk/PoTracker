@@ -197,8 +197,15 @@ export function ReconTabs({
               <th className="px-4 py-3.5">Category</th>
               <th className="px-4 py-3.5 text-right">Required</th>
               <th className="px-4 py-3.5 text-right">Ordered</th>
-              <th className="px-4 py-3.5 text-right">Variance</th>
-              <th className="px-4 py-3.5 text-right">Variance %</th>
+              {/* Its own column: an unsent draft is a different fact from an
+                  order, and reading it as a footnote under Ordered invited it
+                  to be added in — which is the mistake the split-out was for. */}
+              <th className="px-4 py-3.5 text-right">Pending</th>
+              {/* "Difference" rather than "Variance": it is required minus
+                  ordered, and the plainer word is the one people use for it.
+                  Both are renamed so the pair still reads as one idea. */}
+              <th className="px-4 py-3.5 text-right">Difference</th>
+              <th className="px-4 py-3.5 text-right">Difference %</th>
             </tr>
           </thead>
           <tbody>
@@ -239,19 +246,25 @@ export function ReconTabs({
                   </td>
                   <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                     {fmt(r.ordered)}
-                    {/* An unsent draft is not an order — it commits nobody and
-                        costs nothing to abandon — so it is named separately
-                        rather than added in. Hiding it entirely would leave a
-                        buyer re-ordering material they had already allocated. */}
-                    {(r.drafted ?? 0) > 0 && (
-                      <div
-                        className="text-xs font-medium"
-                        style={{ color: "var(--st-pending)" }}
-                        title="Allocated to a PO the buyer has not sent yet"
-                      >
-                        +{fmt(r.drafted)} pending
-                      </div>
-                    )}
+                  </td>
+                  {/* An unsent draft is not an order — it commits nobody and
+                      costs nothing to abandon — so it is counted separately.
+                      Hiding it entirely would leave a buyer re-ordering
+                      material they had already allocated. */}
+                  <td
+                    className="px-4 py-3.5 text-right font-semibold tabular-nums"
+                    style={
+                      (r.drafted ?? 0) > 0
+                        ? { color: "var(--st-pending)" }
+                        : { color: "#9ca3af" }
+                    }
+                    title={
+                      (r.drafted ?? 0) > 0
+                        ? "Allocated to a PO the buyer has not sent yet"
+                        : undefined
+                    }
+                  >
+                    {(r.drafted ?? 0) > 0 ? fmt(r.drafted) : "—"}
                   </td>
                   <td
                     className="px-4 py-3.5 text-right font-semibold tabular-nums"
@@ -271,7 +284,7 @@ export function ReconTabs({
             })}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                   {searchQuery
                     ? `No items matching "${searchQuery}" found under ${meta.label}.`
                     : `No items found for status "${meta.label}".`}
