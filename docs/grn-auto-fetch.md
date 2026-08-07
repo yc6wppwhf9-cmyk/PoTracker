@@ -9,6 +9,13 @@ just arrives by a different route.
 
 ## What you need to create
 
+### 0. What the mail looks like
+
+The register arrives from **Ginesys Reports `<admin@hscvpl.com>`**, subject
+**GRN REPORT**, with one `.xlsx` attached (`GRn_Goods_Received…`), several times
+a day. The two filters below are set from exactly that, so a different report
+landing in the same mailbox is ignored rather than parsed as a register.
+
 ### 1. A Gmail App Password
 
 The mailbox that receives the register needs an App Password; a normal account
@@ -60,8 +67,8 @@ authenticating the caller.
 | `IMAP_USER` | `grn@hscvpl.in` | The mailbox receiving the register |
 | `IMAP_PASSWORD` | 16-char App Password | **Not** the account password |
 | `IMAP_FOLDER` | `INBOX` | Or a Gmail label the register is filtered into |
-| `GRN_ALLOWED_SENDERS` | `erp@hscvpl.in,hscvpl.in` | Address or bare domain, comma separated |
-| `GRN_SUBJECT_CONTAINS` | `grc register` | Optional extra filter |
+| `GRN_ALLOWED_SENDERS` | `admin@hscvpl.com` | The address Ginesys sends from. A bare domain works too |
+| `GRN_SUBJECT_CONTAINS` | `grn report` | Matches the "GRN REPORT" subject, case-insensitive |
 
 `GRN_ALLOWED_SENDERS` is a security control, not a convenience. Anyone who
 learns the mailbox address could otherwise post a spreadsheet into your
@@ -85,6 +92,16 @@ Render → **New** → **Cron Job**, same repository:
 
 `-f` makes curl exit non-zero on an HTTP error, so a failing fetch shows as a
 failed cron run rather than a green tick over an error body.
+
+## Only UNREAD mail is collected
+
+The job looks at unread messages only, so anything already opened by hand is
+skipped — including the reports sitting in the mailbox now. To have those
+imported, mark them unread first; otherwise collection begins with the next one
+to arrive.
+
+Reading is done with `BODY.PEEK`, which does not itself mark anything read, and
+a message is only flagged once its contents are safely stored.
 
 ## What happens on each run
 
