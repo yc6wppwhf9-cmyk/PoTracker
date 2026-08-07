@@ -139,6 +139,11 @@ const NAV: NavItem[] = [
   { href: "/procurement/upload", label: "Upload RM Sheet", roles: ["uploader"], ready: true, icon: IconUpload },
   { href: "/procurement/assign", label: "Assign Buyers", roles: ["purchase_head"], ready: true, icon: IconAssign },
   { href: "/procurement/buyer", label: "Buyer Workspace", roles: ["buyer"], ready: true, icon: IconBuyer },
+  // The buyer's own registers. They had none until now — the person who has to
+  // phone the supplier was the only role with no way to see what was late.
+  { href: "/procurement/my-deliveries", label: "My Deliveries", roles: ["buyer"], ready: true, icon: IconPendingPos },
+  { href: "/procurement/suppliers", label: "Orders by Supplier", roles: ["buyer", "purchase_head", "approver", "md"], ready: true, icon: IconPoTeam },
+  { href: "/procurement/my-receipts", label: "My Receipts", roles: ["buyer"], ready: true, icon: IconReceipts },
   { href: "/procurement/po-team", label: "PO Team", roles: ["po_team"], ready: true, icon: IconPoTeam },
   { href: "/procurement/approver", label: "MR Sheets to Approve", roles: ["approver"], ready: true, icon: IconApprover },
   { href: "/procurement/po-approvals", label: "PO Approvals", roles: ["approver"], ready: true, icon: IconPoApprovals },

@@ -50,19 +50,26 @@ const keyOf = (code: string | null) => (code ?? "").toUpperCase();
  *  register is not reported as a short delivery. */
 const TOLERANCE = 0.005;
 
-export async function getPendingPos(): Promise<PendingLine[]> {
+/**
+ * @param buyerId  Limit to purchase orders this buyer raised. RLS already
+ *   hides other buyers' orders from them, but the filter is explicit so the
+ *   page cannot depend on a policy staying exactly as it is today.
+ */
+export async function getPendingPos(buyerId?: string): Promise<PendingLine[]> {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
 
   // Every PO that reached a supplier, not only the overdue ones: a part
   // delivery against a PO whose date has not passed is still an open balance
   // somebody has to chase eventually.
-  const { data: pos } = await supabase
+  const base = supabase
     .from("po")
     .select(
       "id, po_number, etd, site, rm_sheet_id, status, created_by, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, supplier, etd, site, item_master(name))"
     )
-    .neq("status", "draft")
+    .neq("status", "draft");
+
+  const { data: pos } = await (buyerId ? base.eq("created_by", buyerId) : base)
     .order("etd", { ascending: true, nullsFirst: false });
 
   const rows = pos ?? [];
