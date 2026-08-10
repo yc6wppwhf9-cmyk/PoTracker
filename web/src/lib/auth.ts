@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { AppRole } from "@/lib/database.types";
@@ -13,8 +14,17 @@ export type SessionProfile = {
  * Returns the current user's profile (id + role), or null if not signed in.
  * Uses getUser() (validates the JWT with Supabase) — never trust getSession()
  * alone for authorization.
+ *
+ * Wrapped in React's `cache`, so it runs ONCE per request no matter how many
+ * times it is called during that render. A page calls requireRole(), then
+ * AppShell needs the same profile, and sometimes a child does too — each of
+ * those was a separate getUser() (a network call to Supabase Auth) plus a
+ * separate profiles query. From a function in Tokyo that is cheap; from one in
+ * Washington it was most of a second, spent re-answering a question already
+ * answered. The cache is per-request, so it cannot serve one user's profile to
+ * another.
  */
-export async function getSessionProfile(): Promise<SessionProfile | null> {
+export const getSessionProfile = cache(async function getSessionProfile(): Promise<SessionProfile | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -35,7 +45,7 @@ export async function getSessionProfile(): Promise<SessionProfile | null> {
     fullName: profile.full_name,
     role: profile.role,
   };
-}
+});
 
 /** Require a signed-in user; redirect to /login otherwise. */
 export async function requireUser(): Promise<SessionProfile> {

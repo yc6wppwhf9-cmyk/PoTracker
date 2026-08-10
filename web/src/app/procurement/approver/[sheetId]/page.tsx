@@ -18,16 +18,13 @@ export default async function ApproverSheetDetailPage({
   const { sheetId } = await params;
   const supabase = await createClient();
 
-  const { data: sheetRows } = await supabase
+  const sheetQuery = supabase
     .from("rm_sheet")
     .select("id, style_ref, status, created_at, uploaded_by")
     .eq("id", sheetId)
     .limit(1);
-  const sheet = sheetRows?.[0];
-  if (!sheet) notFound();
-
   // Paged — a truncated read under-reports every quantity on this page.
-  const recon = (await fetchAll((from, to) =>
+  const reconQuery = fetchAll((from, to) =>
     supabase
       .from("reconciliation")
       .select("*")
@@ -36,14 +33,25 @@ export default async function ApproverSheetDetailPage({
       .order("lot")
       .order("location")
       .range(from, to)
-  )) as ReconRow[];
+  );
 
-  const { data: approvalRows } = await supabase
+  const approvalQuery = supabase
     .from("approval")
     .select("*")
     .eq("rm_sheet_id", sheetId)
     .limit(1);
-  const approval = approvalRows?.[0];
+
+  // Three independent reads, issued together. Sequentially they were three
+  // round trips to the database before the page could render anything.
+  const [sheetRes, recon, approvalRes] = await Promise.all([
+    sheetQuery,
+    reconQuery as Promise<ReconRow[]>,
+    approvalQuery,
+  ]);
+
+  const sheet = sheetRes.data?.[0];
+  if (!sheet) notFound();
+  const approval = approvalRes.data?.[0];
 
   const isSentToMd = Boolean(approval?.sent_to_md_at);
 

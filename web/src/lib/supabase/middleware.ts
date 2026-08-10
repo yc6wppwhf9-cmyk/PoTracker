@@ -21,6 +21,20 @@ const PUBLIC_PREFIXES = [
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  // Prefetches are let through without an auth call.
+  //
+  // getUser() is a NETWORK request to Supabase Auth, not a local check. The
+  // sidebar renders a link per screen and Next prefetches each one it sees, so
+  // a single page view fired a dozen or more of them — every one a round trip
+  // to Tokyo, all of them ahead of the page the person actually asked for. The
+  // auth log showed them arriving in bursts of thirty.
+  //
+  // Skipping is safe because a prefetch renders nothing a user sees: the real
+  // navigation that follows is checked here, and every page independently
+  // calls requireRole() before returning anything. RLS is behind both.
+  if (request.headers.get("next-router-prefetch") === "1")
+    return supabaseResponse;
+
   const supabase = createServerClient<Database>(
     supabaseUrl(),
     supabaseAnonKey(),

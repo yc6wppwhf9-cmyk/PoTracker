@@ -55,18 +55,16 @@ export default async function BuyerSheetPage({
   const { sheetId } = await params;
   const supabase = await createClient();
 
-  const { data: sheetRows } = await supabase
+  const sheetQuery = supabase
     .from("rm_sheet")
     .select("id, style_ref, status")
     .eq("id", sheetId)
     .limit(1);
-  const sheet = sheetRows?.[0];
-  if (!sheet) notFound();
 
   // This buyer's assigned lines for the sheet, with catalogue detail.
   // Paged: a truncated read would hide orderable lines from the buyer, so the
   // PO they raise would under-order.
-  const lines = await fetchAll((from, to) =>
+  const linesQuery = fetchAll((from, to) =>
     supabase
       .from("rm_requirement")
       .select("item_code, lot, location, required_qty, item_master(name, category)")
@@ -84,7 +82,7 @@ export default async function BuyerSheetPage({
   // here even though reconciliation excludes them: an unsent draft commits
   // nobody downstream, but it is still material this buyer has allocated and
   // must not allocate twice.
-  const covered = await fetchAll((from, to) =>
+  const coveredQuery = fetchAll((from, to) =>
     supabase
       .from("reconciliation")
       .select("item_code, lot, location, ordered, drafted")
@@ -94,6 +92,30 @@ export default async function BuyerSheetPage({
       .order("location")
       .range(from, to)
   );
+  // Existing POs this buyer created for the sheet, with their line items.
+  const posQuery = supabase
+    .from("po")
+    .select(
+      "id, status, created_at, doc_path, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, remark, etd, site, item_master(name))"
+    )
+    .eq("rm_sheet_id", sheetId)
+    .eq("created_by", profile.userId)
+    .order("created_at", { ascending: false });
+
+  // All four reads at once. None of them needs another's answer, and issued
+  // one after the other they were four sequential round trips to the database
+  // — which is most of what this page cost before its region was fixed.
+  const [sheetRes, lines, covered, posRes] = await Promise.all([
+    sheetQuery,
+    linesQuery,
+    coveredQuery,
+    posQuery,
+  ]);
+
+  const sheet = sheetRes.data?.[0];
+  if (!sheet) notFound();
+  const pos = posRes.data;
+
   const coveredBy = new Map<string, { ordered: number; drafted: number }>();
   for (const c of covered) {
     coveredBy.set(
@@ -136,16 +158,6 @@ export default async function BuyerSheetPage({
       (a.lot ?? "").localeCompare(b.lot ?? "")
   );
   items.forEach((i) => (i.required_qty = Math.round(i.required_qty * 100) / 100));
-
-  // Existing POs this buyer created for the sheet, with their line items.
-  const { data: pos } = await supabase
-    .from("po")
-    .select(
-      "id, status, created_at, doc_path, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, remark, etd, site, item_master(name))"
-    )
-    .eq("rm_sheet_id", sheetId)
-    .eq("created_by", profile.userId)
-    .order("created_at", { ascending: false });
 
   return (
     <AppShell profile={profile}>
