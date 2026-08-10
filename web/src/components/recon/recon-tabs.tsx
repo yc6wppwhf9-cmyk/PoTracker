@@ -9,6 +9,10 @@ import {
   type ReconStatus,
 } from "@/lib/reconciliation";
 
+/** Rows put in the DOM at once. Large enough that paging is rare on a normal
+ *  sheet, small enough that the table stays responsive on a big one. */
+const PAGE_SIZE = 100;
+
 function fmt(n: number | null): string {
   if (n == null) return "—";
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -40,6 +44,7 @@ export function ReconTabs({
   onActiveChange?: (s: ReconStatus) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -53,6 +58,7 @@ export function ReconTabs({
   const active = controlledActive ?? uncontrolled;
   const setActive = (s: ReconStatus) => {
     setUncontrolled(s);
+    setPageIndex(0);
     onActiveChange?.(s);
   };
 
@@ -70,6 +76,25 @@ export function ReconTabs({
       return codeMatch || nameMatch || catMatch;
     });
   }, [rows, active, searchQuery]);
+
+  // Only a page of rows is put in the DOM.
+  //
+  // This table used to render every row of the selected status. On a real
+  // sheet that is well over a thousand rows of ten cells each — some twelve
+  // thousand nodes for React to build, hydrate and keep — and it was the
+  // largest remaining cost after server rendering moved next to the database.
+  // Nothing about latency could touch it: the time was going on the browser's
+  // own main thread, which is why the page felt heavy to scroll as well as
+  // slow to arrive.
+  //
+  // The filtering above still runs across every row, so search and the counts
+  // on the cards describe the whole sheet, not the page being looked at.
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const page = Math.min(pageIndex, pageCount - 1);
+  const pageRows = useMemo(
+    () => visible.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+    [visible, page]
+  );
 
   const meta = STATUS_META[active];
 
@@ -157,7 +182,10 @@ export function ReconTabs({
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPageIndex(0);
+            }}
             placeholder="Search item code, name, category..."
             className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 pl-9 text-xs font-medium text-slate-900 shadow-xs outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
@@ -209,7 +237,7 @@ export function ReconTabs({
             </tr>
           </thead>
           <tbody>
-            {visible.map((r) => {
+            {pageRows.map((r) => {
               const v = r.variance ?? 0;
               const vColor =
                 v > 0
@@ -282,7 +310,7 @@ export function ReconTabs({
                 </tr>
               );
             })}
-            {visible.length === 0 && (
+            {pageRows.length === 0 && (
               <tr>
                 <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                   {searchQuery
@@ -293,6 +321,44 @@ export function ReconTabs({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Stated even on a single page: "showing 100 of 1,412" is the
+          difference between a filter that found little and a table that is
+          simply long, and the count is what the approver is judging. */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+        <span className="tabular-nums">
+          {visible.length === 0
+            ? "No items"
+            : `Showing ${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min(
+                (page + 1) * PAGE_SIZE,
+                visible.length
+              ).toLocaleString()} of ${visible.length.toLocaleString()}`}
+        </span>
+
+        {pageCount > 1 && (
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
+              disabled={page === 0}
+              className="rounded-md border border-slate-200 px-2 py-1 font-medium disabled:opacity-40 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Previous
+            </button>
+            <span className="tabular-nums">
+              Page {page + 1} of {pageCount}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
+              disabled={page >= pageCount - 1}
+              className="rounded-md border border-slate-200 px-2 py-1 font-medium disabled:opacity-40 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Next
+            </button>
+          </span>
+        )}
       </div>
 
     </div>
