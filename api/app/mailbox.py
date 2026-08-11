@@ -77,7 +77,22 @@ def should_process(
     """
     senders = [s.strip().lower() for s in allowed_senders if s.strip()]
     frm = sender_address(msg)
-    if senders and not any(frm == s or frm.endswith("@" + s.lstrip("@")) for s in senders):
+
+    # No allowlist means NOTHING is accepted, not everything.
+    #
+    # This read `if senders and not any(...)`, so an unset or mistyped
+    # GRN_ALLOWED_SENDERS quietly turned the one security control on this path
+    # into a no-op: any message reaching the mailbox with a spreadsheet
+    # attached would be imported as goods received. That is the record the
+    # approver judges deliveries against, and the failure is silent — the
+    # imports look normal. Refusing everything is loud and harmless by
+    # comparison; the fix is to set the variable.
+    if not senders:
+        return False, (
+            "no allowed senders are configured (GRN_ALLOWED_SENDERS is empty), "
+            "so nothing is imported"
+        )
+    if not any(frm == s or frm.endswith("@" + s.lstrip("@")) for s in senders):
         return False, f"sender {frm or '(unknown)'} is not allowed"
 
     if subject_contains:
@@ -120,10 +135,10 @@ def fetch_unseen(
     user: str,
     password: str,
     folder: str = "INBOX",
-    limit: int = 20,
+    limit: int = 50,
     port: int = 993,
 ) -> list[dict[str, Any]]:
-    """Return unread messages from the mailbox, newest last.
+    """Return up to `limit` unread messages, OLDEST first.
 
     Messages are NOT marked read here. That happens only after a successful
     import, so a crash mid-import leaves the mail to be picked up next run
@@ -136,7 +151,12 @@ def fetch_unseen(
         typ, data = conn.search(None, "UNSEEN")
         if typ != "OK":
             return []
-        ids = (data[0] or b"").split()[-limit:]
+        # OLDEST first. This took the newest `limit`, so once more than that
+        # many unread messages accumulated, the older ones were never reached
+        # again — each run looked at the same recent batch and the backlog sat
+        # there permanently. A register that arrives while the job is failing
+        # is exactly the one that must not be skipped.
+        ids = (data[0] or b"").split()[:limit]
 
         out: list[dict[str, Any]] = []
         for num in ids:

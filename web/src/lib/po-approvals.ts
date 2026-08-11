@@ -54,13 +54,24 @@ export async function getPoApprovals(): Promise<PoApproval[]> {
 
   // Drafts are excluded: the buyer has not sent them, so there is no order to
   // approve yet.
-  const { data: pos } = await supabase
-    .from("po")
-    .select(
-      "id, po_number, site, etd, status, doc_path, approval_status, approved_at, approved_by, approval_note, created_by, rm_sheet_id, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, rate, supplier, etd, site, item_master(name))"
-    )
-    .neq("status", "draft")
-    .order("created_at", { ascending: false });
+  // Paged. Supabase caps a single read at 1000 rows and reports no error when
+  // it truncates, so past a thousand purchase orders this screen would simply
+  // stop showing the rest — quietly, and with every total understated.
+  const pos = await fetchAll((from, to) =>
+    supabase
+      .from("po")
+      .select(
+        "id, po_number, site, etd, status, doc_path, approval_status, approved_at, approved_by, approval_note, created_by, created_at, rm_sheet_id, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, rate, supplier, etd, site, item_master(name))"
+      )
+      .neq("status", "draft")
+      .order("id")
+      .range(from, to)
+  );
+
+  // Newest first for display, sorted here now that paging fixes the order.
+  pos.sort((a, b) =>
+    String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
+  );
 
   const rows = pos ?? [];
   if (rows.length === 0) return [];

@@ -67,13 +67,20 @@ export async function getOverReceipts(): Promise<OverReceiptLine[]> {
   const supabase = await createClient();
 
   // Only POs that were actually placed can be over-delivered against.
-  const { data: pos } = await supabase
-    .from("po")
-    .select(
-      "id, po_number, site, rm_sheet_id, rm_sheet(style_ref), po_line(item_code, lot, location, ordered_qty, rate, supplier, item_master(name))"
-    )
-    .neq("status", "draft")
-    .not("po_number", "is", null);
+  // Paged. Supabase caps a single read at 1000 rows and reports no error when
+  // it truncates, so past a thousand purchase orders this screen would simply
+  // stop showing the rest — quietly, and with every total understated.
+  const pos = await fetchAll((from, to) =>
+    supabase
+      .from("po")
+      .select(
+        "id, po_number, site, rm_sheet_id, rm_sheet(style_ref), po_line(item_code, lot, location, ordered_qty, rate, supplier, item_master(name))"
+      )
+      .neq("status", "draft")
+      .not("po_number", "is", null)
+      .order("id")
+      .range(from, to)
+  );
 
   const rows = pos ?? [];
   if (rows.length === 0) return [];

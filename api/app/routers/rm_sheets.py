@@ -13,6 +13,14 @@ from app.supabase_client import fetch_all
 
 router = APIRouter(prefix="/rm-sheets", tags=["rm-sheets"])
 
+
+def _explain_po_insert(e: Exception) -> str:
+    """Why creating a PO row failed, in words the importer can act on."""
+    t = str(e)
+    if "23505" in t or "po_po_number_key" in t or "duplicate key" in t.lower():
+        return "a purchase order with that number already exists"
+    return t[:200]
+
 XLSX_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel",
@@ -316,15 +324,29 @@ def upload_rm_sheet(
             })
 
     for po_num, lines in po_groups.items():
-        po_res = (
-            user.client.table("po")
-            .insert({
-                "rm_sheet_id": sheet_id,
-                "created_by": user.id,
-                "status": "uploaded",
-            })
-            .execute()
-        )
+        # Wrapped, because po_number is unique. Re-importing a register that
+        # overlaps one already loaded now raises instead of quietly creating a
+        # second PO with the same number — which is the right refusal, but it
+        # must cost that one order rather than the whole import.
+        try:
+            po_res = (
+                user.client.table("po")
+                .insert({
+                    "rm_sheet_id": sheet_id,
+                    "created_by": user.id,
+                    "status": "uploaded",
+                    # The number this PO is known by, saved on the row and not only
+                    # in the line remark. Everything downstream joins on it: the GRN
+                    # register, pending deliveries, the exports, and grn_ours — which
+                    # hides receipts whose PO number matches nothing here. Without
+                    # it these orders could never be matched to a delivery.
+                    "po_number": po_num.strip().upper() or None,
+                })
+                .execute()
+            )
+        except Exception as e:
+            warnings.append(f"PO '{po_num}' was not created: {_explain_po_insert(e)}")
+            continue
         if not po_res.data:
             warnings.append(f"Could not create the PO record for '{po_num}'.")
             continue

@@ -125,3 +125,20 @@ def test_message_id_falls_back_when_absent():
     mid = message_id(_mail(msg_id=None))
     assert mid
     assert "erp@hscvpl.in" in mid
+
+
+def test_an_empty_allowlist_accepts_nothing():
+    """Fail closed.
+
+    This used to read `if senders and not any(...)`, so an unset or mistyped
+    GRN_ALLOWED_SENDERS turned the only security control on this path into a
+    no-op: anything with a spreadsheet attached became goods received. The
+    imports looked normal, which is what made it dangerous.
+    """
+    ok, why = should_process(_mail(), [])
+    assert not ok
+    assert "GRN_ALLOWED_SENDERS" in why
+
+    # Whitespace-only is the same mistake wearing a different hat.
+    ok, _ = should_process(_mail(), ["  ", ""])
+    assert not ok

@@ -62,15 +62,22 @@ export async function getPendingPos(buyerId?: string): Promise<PendingLine[]> {
   // Every PO that reached a supplier, not only the overdue ones: a part
   // delivery against a PO whose date has not passed is still an open balance
   // somebody has to chase eventually.
-  const base = supabase
-    .from("po")
-    .select(
-      "id, po_number, etd, site, rm_sheet_id, status, created_by, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, supplier, etd, site, item_master(name))"
-    )
-    .neq("status", "draft");
-
-  const { data: pos } = await (buyerId ? base.eq("created_by", buyerId) : base)
-    .order("etd", { ascending: true, nullsFirst: false });
+  // Paged. Supabase caps a single read at 1000 rows and reports no error when
+  // it truncates, so past a thousand purchase orders this screen would simply
+  // stop showing the rest — quietly, and with every total understated.
+  const pos = await fetchAll((from, to) => {
+    const base = supabase
+      .from("po")
+      .select(
+        "id, po_number, etd, site, rm_sheet_id, status, created_by, rm_sheet(style_ref), po_line(item_code, lot, ordered_qty, supplier, etd, site, item_master(name))"
+      )
+      .neq("status", "draft");
+    return (buyerId ? base.eq("created_by", buyerId) : base)
+      // Ordered by id, not etd: paging needs a total order over a column that
+      // is unique, and etd repeats and is often null.
+      .order("id")
+      .range(from, to);
+  });
 
   const rows = pos ?? [];
   if (rows.length === 0) return [];
