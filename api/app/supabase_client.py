@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, Sequence, Union
 
 from supabase import create_client, Client
 from supabase.client import ClientOptions
@@ -11,23 +11,37 @@ from app.config import get_settings
 PAGE_SIZE = 1000
 
 
-def fetch_all(build_page: Callable[[], Any], order_by: str) -> list[dict[str, Any]]:
+def fetch_all(
+    build_page: Callable[[], Any],
+    order_by: Union[str, Sequence[str]],
+) -> list[dict[str, Any]]:
     """Page through an entire result set.
 
     `build_page` returns a fresh PostgREST query each call (they are stateful,
-    so one cannot be reused across pages). `order_by` must be a column that
-    totally orders the rows — without it Postgres may return rows in a
-    different order per page, making pagination skip and duplicate rows.
+    so one cannot be reused across pages).
+
+    `order_by` must TOTALLY order the rows, and a column that merely looks like
+    an identifier is not enough. Postgres makes no promise about the relative
+    order of rows that tie, so with a non-unique sort the same row can appear on
+    two pages while another appears on none — silently, and only once the data
+    is big enough to need a second page.
+    
+    Several callers were ordering the reconciliation view by `item_code` and
+    receipts by `grc_no`, neither of which is unique: one item has a row per lot
+    and location, one GRC covers many lines. Pass every column needed to make
+    the order unique — a sequence is applied in order.
     """
+    keys = [order_by] if isinstance(order_by, str) else list(order_by)
+    if not keys:
+        raise ValueError("fetch_all needs at least one ordering column")
+
     rows: list[dict[str, Any]] = []
     start = 0
     while True:
-        res = (
-            build_page()
-            .order(order_by)
-            .range(start, start + PAGE_SIZE - 1)
-            .execute()
-        )
+        q = build_page()
+        for k in keys:
+            q = q.order(k)
+        res = q.range(start, start + PAGE_SIZE - 1).execute()
         batch = res.data or []
         rows.extend(batch)
         if len(batch) < PAGE_SIZE:

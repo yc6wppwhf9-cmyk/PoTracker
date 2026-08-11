@@ -1,3 +1,6 @@
+# What this service needs, in readable form. The versions actually installed
+# are pinned in requirements.lock.txt, which is what deployment uses — see the
+# note at the top of that file.
 fastapi>=0.118
 uvicorn[standard]>=0.34
 python-multipart>=0.0.20

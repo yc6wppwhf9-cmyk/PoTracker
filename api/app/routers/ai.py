@@ -3,6 +3,7 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.ratelimit import limit_ai
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.config import get_settings
 from app.supabase_client import fetch_all
@@ -55,6 +56,7 @@ def generate_executive_summary(
     Usable by approvers, MD, and admins.
     """
     require_roles(user, "approver", "md")
+    limit_ai(user.id)
 
     # Fetch sheet info
     sheet_res = (
@@ -73,7 +75,7 @@ def generate_executive_summary(
         lambda: user.client.table("reconciliation")
         .select("*")
         .eq("rm_sheet_id", sheet_id),
-        order_by="item_code",
+        order_by=("rm_sheet_id", "item_code", "lot", "location"),
     )
 
     # Compute status counts and variance details
@@ -169,6 +171,7 @@ def fuzzy_match_items(
     Use Claude AI to suggest item_master catalogue matches for unmatched requirements ('needs_review').
     """
     require_roles(user, "uploader", "purchase_head")
+    limit_ai(user.id)
 
     # Fetch requirement lines needing review
     req_res = (

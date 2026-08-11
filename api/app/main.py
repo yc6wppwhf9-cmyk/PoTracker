@@ -1,6 +1,7 @@
 import logging
 import os
 import traceback
+import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,20 +42,46 @@ async def surface_errors_with_cors(request: Request, call_next):
     try:
         return await call_next(request)
     except Exception as e:
-        log.error("Unhandled error on %s %s", request.method, request.url.path)
-        log.error(traceback.format_exc())
+        # Every unhandled error gets an id. The id goes to the client, the
+        # exception goes to the log, and the two are joined by searching for it.
+        #
+        # The message itself used to be returned verbatim. That was deliberate
+        # — CORS was swallowing 500s and the real cause was invisible — but a
+        # raw Postgres error names tables, columns and constraints, which is
+        # free reconnaissance for anyone poking at the API. The trade was right
+        # while this was being built and wrong now that it is in use by people
+        # who are not us.
+        error_id = uuid.uuid4().hex[:12]
         detail = str(e) or e.__class__.__name__
-        # A missing table is nearly always an unapplied migration, and saying so
-        # saves reading a Postgres error to work out which one.
+        log.error(
+            "Unhandled error %s on %s %s: %s",
+            error_id,
+            request.method,
+            request.url.path,
+            detail,
+        )
+        log.error(traceback.format_exc())
+
+        # The one exception, because it is ours and not an attacker's business:
+        # a missing table is nearly always an unapplied migration, and the
+        # person seeing it is an administrator who can act on it.
         hint = None
         if "does not exist" in detail and "relation" in detail:
             hint = (
                 "A table this endpoint needs is missing — apply the outstanding "
                 "migrations in supabase/migrations, then retry."
             )
+
         return JSONResponse(
             status_code=500,
-            content={"detail": detail[:500], "hint": hint},
+            content={
+                "detail": (
+                    "Something went wrong on the server. Quote reference "
+                    f"{error_id} when reporting it."
+                ),
+                "error_id": error_id,
+                "hint": hint,
+            },
         )
 
 

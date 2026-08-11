@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import hmac
+import logging
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 
+from app.uploads import read_upload
+from app.ratelimit import limit_cron, limit_uploads
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.config import get_settings
 from app.grn_parsing import parse_grn_register
@@ -20,6 +25,8 @@ from app.mailbox import (
     spreadsheet_attachments,
 )
 from app.supabase_client import fetch_all, service_client
+
+log = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/grn", tags=["grn"])
 
@@ -35,7 +42,6 @@ ALLOWED_EXT = (".xlsx", ".xlsm", ".xls")
 # deduplicating it, so a register of this size no longer holds two copies of
 # itself. Raise this further only alongside a larger instance: the ceiling is
 # the instance's memory, not the file.
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 @router.post("/import")
@@ -56,17 +62,8 @@ def import_grn_register(
     if not filename.lower().endswith(ALLOWED_EXT):
         raise HTTPException(400, f"Allowed types: {', '.join(ALLOWED_EXT)}")
 
-    data = file.file.read()
-    if not data:
-        raise HTTPException(400, "Uploaded file is empty.")
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            413,
-            f"The file is {len(data) / 1_048_576:.1f} MB, over the "
-            f"{MAX_UPLOAD_BYTES // 1_048_576} MB limit this service can parse. "
-            "Export a shorter date range and import it in parts — re-importing "
-            "is safe, and each part only replaces its own GRC numbers.",
-        )
+    limit_uploads(user.id)
+    data = read_upload(file, "GRN register")
 
     try:
         parsed = parse_grn_register(data)
@@ -191,7 +188,7 @@ def _rows_for_known_pos(
         lambda: user.client.table("po")
         .select("po_number")
         .not_.is_("po_number", "null"),
-        order_by="po_number",
+        order_by="id",
     )
     known = {
         str(p["po_number"]).strip().upper() for p in pos if p.get("po_number")
@@ -208,29 +205,83 @@ def _rows_for_known_pos(
 def _store(user: Any, rows: list[dict[str, Any]]) -> tuple[int, list[str]]:
     """Write receipt lines, replacing any existing lines for the same GRC.
 
-    Chunked: a register can carry thousands of GRC numbers, and the delete
-    filter is built from them.
-    """
-    grc_numbers = sorted({r["grc_no"] for r in rows})
-    for i in range(0, len(grc_numbers), 200):
-        chunk = grc_numbers[i : i + 200]
-        user.client.table("grn").delete().in_("grc_no", chunk).execute()
+    One transaction per batch, via replace_grn_rows.
+    #
+    This used to delete every row for the GRC numbers in the file and then
+    insert the replacements in chunks. A failure between the two — a bad value,
+    a dropped connection, the instance recycled mid-request — left those
+    receipts deleted and the replacement partly written, with nothing reporting
+    it. The register looked imported and the quantities the approver judges
+    deliveries against were simply lower than reality.
 
-    # 1000 a time: a large register is otherwise hundreds of round trips, and
-    # the whole import has to finish inside one HTTP request the browser is
-    # still waiting on.
+    Batched by GRC rather than by row, so a batch is never split across two
+    transactions: every line of a receipt is replaced together or not at all.
+    """
+    if not rows:
+        return 0, []
+
+    by_grc: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        by_grc.setdefault(r["grc_no"], []).append(r)
+
+    grc_numbers = sorted(by_grc)
     inserted = 0
-    for i in range(0, len(rows), 1000):
-        chunk = [{**r, "imported_by": user.id} for r in rows[i : i + 1000]]
-        res = (
-            user.client.table("grn")
-            .insert(chunk, returning="minimal")
-            .execute()
-        )
-        # returning="minimal" means no rows come back — sending 145,000 rows
-        # only to receive them again is bandwidth and memory for nothing.
-        inserted += len(res.data or []) or len(chunk)
+
+    # ~200 receipts at a time. The whole import has to finish inside one HTTP
+    # request, and a single statement carrying a 145,000-row payload is its own
+    # kind of fragile.
+    for i in range(0, len(grc_numbers), 200):
+        batch_grcs = grc_numbers[i : i + 200]
+        batch_rows = [r for g in batch_grcs for r in by_grc[g]]
+        payload = [_jsonable(r) for r in batch_rows]
+        try:
+            res = user.client.rpc(
+                "replace_grn_rows",
+                {"p_grc_numbers": batch_grcs, "p_rows": payload},
+            ).execute()
+            inserted += int(res.data or 0)
+        except Exception as e:
+            if not _missing_function(e):
+                raise
+            # Until 20260822_atomic_replace.sql is applied. Same behaviour as
+            # before, including the window this function exists to close.
+            log.warning(
+                "replace_grn_rows() is missing — falling back to "
+                "delete-then-insert. Apply supabase/migrations/"
+                "20260822_atomic_replace.sql."
+            )
+            user.client.table("grn").delete().in_("grc_no", batch_grcs).execute()
+            for j in range(0, len(batch_rows), 1000):
+                chunk = [
+                    {**r, "imported_by": user.id} for r in batch_rows[j : j + 1000]
+                ]
+                r2 = (
+                    user.client.table("grn")
+                    .insert(chunk, returning="minimal")
+                    .execute()
+                )
+                inserted += len(r2.data or []) or len(chunk)
+
     return inserted, grc_numbers
+
+
+def _jsonable(row: dict[str, Any]) -> dict[str, Any]:
+    """A parsed row as JSON the function can read: dates as ISO strings."""
+    out: dict[str, Any] = {}
+    for k, v in row.items():
+        if isinstance(v, (date, datetime)):
+            out[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            out[k] = float(v)
+        else:
+            out[k] = v
+    return out
+
+
+def _missing_function(e: Exception) -> bool:
+    """True when the database has no such function (migration not applied)."""
+    t = str(e)
+    return "PGRST202" in t or "Could not find the function" in t
 
 
 class _Acting:
@@ -291,6 +342,7 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
         x_cron_secret.encode("utf-8"), settings.cron_secret.encode("utf-8")
     ):
         raise HTTPException(401, "Bad or missing X-Cron-Secret header.")
+    limit_cron()
     if not settings.imap_user or not settings.imap_password:
         raise HTTPException(503, "IMAP_USER and IMAP_PASSWORD are not configured.")
 

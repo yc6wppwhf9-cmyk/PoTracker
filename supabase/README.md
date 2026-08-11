@@ -3,6 +3,9 @@
 ⚠️ **The schema for this app currently exists only inside the hosted Supabase
 project.** Nothing in this repository can recreate it.
 
+**Fix in five minutes: see [CAPTURE.md](CAPTURE.md).** It needs a Supabase
+login, so it has to be run by someone with access to the account.
+
 That includes:
 
 - the tables (`item_master`, `uom_conversion`, `rm_sheet`, `rm_requirement`,

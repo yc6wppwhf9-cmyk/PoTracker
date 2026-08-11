@@ -41,9 +41,19 @@ def test_error_response_carries_cors_headers():
     assert r.headers.get("access-control-allow-origin") == ORIGIN
 
 
-def test_error_response_carries_the_real_message():
+def test_error_response_does_not_leak_the_exception():
+    """The message named tables, columns and constraints.
+
+    Returning it verbatim was deliberate once — CORS was swallowing 500s and
+    the cause was invisible — but it hands anyone probing the API a free map of
+    the schema. The client now gets a reference; the exception goes to the log,
+    and the two are joined by searching for that reference.
+    """
     r = client.get("/__test_boom", headers={"Origin": ORIGIN})
-    assert "does not exist" in r.json()["detail"]
+    body = r.json()
+    assert "public.grn" not in body["detail"]
+    assert "does not exist" not in body["detail"]
+    assert body["error_id"] and body["error_id"] in body["detail"]
 
 
 def test_missing_table_is_explained_as_a_migration():

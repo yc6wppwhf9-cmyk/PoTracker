@@ -17,6 +17,7 @@ from openpyxl.utils import get_column_letter
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from app.ratelimit import limit_exports
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.supabase_client import fetch_all
 
@@ -83,6 +84,7 @@ def export_reconciliation(
 ):
     """KPI-oriented reconciliation workbook for the approval stage."""
     require_roles(user, "approver", "md", "purchase_head", "po_team")
+    limit_exports(user.id)
 
     sheet_res = (
         user.client.table("rm_sheet")
@@ -100,7 +102,7 @@ def export_reconciliation(
         lambda: user.client.table("reconciliation")
         .select("*")
         .eq("rm_sheet_id", sheet_id),
-        order_by="item_code",
+        order_by=("rm_sheet_id", "item_code", "lot", "location"),
     )
     if not rows:
         raise HTTPException(422, "Nothing to export — this sheet has no reconciled lines.")
@@ -301,6 +303,7 @@ def export_grn_register(user: CurrentUser = Depends(get_current_user)):
     something the recipient has to reconstruct with a lookup.
     """
     require_roles(user, "approver", "md", "purchase_head", "po_team")
+    limit_exports(user.id)
 
     rows = fetch_all(
         lambda: user.client.table("grn_ours").select(
@@ -308,7 +311,7 @@ def export_grn_register(user: CurrentUser = Depends(get_current_user)):
             "qty, supplier, stock_point, department, doc_no, doc_date, "
             "landed_cost, remarks"
         ),
-        order_by="grc_no",
+        order_by="id",
     )
     if not rows:
         raise HTTPException(422, "Nothing to export — no receipts have been imported.")
@@ -382,6 +385,7 @@ def export_pending_pos(user: CurrentUser = Depends(get_current_user)):
     specific material, and a PO-level total does not say which item is short.
     """
     require_roles(user, "approver", "md", "purchase_head", "po_team")
+    limit_exports(user.id)
 
     ordered, received, po_by_number = _ordered_and_received(user)
 

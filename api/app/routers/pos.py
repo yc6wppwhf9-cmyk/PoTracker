@@ -7,6 +7,8 @@ import openpyxl
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from app.uploads import read_upload
+from app.ratelimit import limit_uploads
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.po_number import po_number_from_pdf
 from app.routers.notify import notify_po_attached
@@ -95,9 +97,8 @@ def upload_po_document(
     if not filename.lower().endswith(ALLOWED_EXT):
         raise HTTPException(400, f"Allowed types: {', '.join(ALLOWED_EXT)}")
 
-    data = file.file.read()
-    if not data:
-        raise HTTPException(400, "Uploaded file is empty.")
+    limit_uploads(user.id)
+    data = read_upload(file, "PO document")
 
     # Confirm the PO exists and is visible to this user (RLS: po_select).
     po = (
@@ -267,9 +268,8 @@ def import_po_register(
     if not filename.lower().endswith(".xlsx"):
         raise HTTPException(400, "Please upload a .xlsx PO Register file.")
 
-    data = file.file.read()
-    if not data:
-        raise HTTPException(400, "Uploaded file is empty.")
+    limit_uploads(user.id)
+    data = read_upload(file, "PO register")
 
     # Idempotency: re-importing the same register would double every ordered
     # quantity and silently corrupt reconciliation. `po` has no content_hash

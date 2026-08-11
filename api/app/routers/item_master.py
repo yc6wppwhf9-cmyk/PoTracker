@@ -4,6 +4,8 @@ from typing import Any, Optional
 import openpyxl
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from app.uploads import read_upload
+from app.ratelimit import limit_uploads
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.parsing import _norm, _to_number
 
@@ -96,9 +98,8 @@ def import_item_master(
 
     if not (file.filename or "").lower().endswith(".xlsx"):
         raise HTTPException(400, "Please upload an .xlsx file.")
-    data = file.file.read()
-    if not data:
-        raise HTTPException(400, "Uploaded file is empty.")
+    limit_uploads(user.id)
+    data = read_upload(file, "item master file")
 
     wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
     ws = wb.worksheets[0]

@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from app.uploads import read_upload
+from app.ratelimit import limit_uploads
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.parsing import parse_rm_sheet
 from app.routers.notify import notify_sheet_uploaded
@@ -50,7 +52,7 @@ def _load_catalogue(user: CurrentUser):
         lambda: user.client.table("uom_conversion").select(
             "item_code, from_unit, factor_to_base"
         ),
-        order_by="item_code",
+        order_by=("item_code", "from_unit"),
     ):
         factors[(u["item_code"], (u["from_unit"] or "").strip().lower())] = float(
             u["factor_to_base"]
@@ -71,9 +73,8 @@ def upload_rm_sheet(
     if not filename.lower().endswith(".xlsx"):
         raise HTTPException(400, "Please upload an .xlsx file.")
 
-    data = file.file.read()
-    if not data:
-        raise HTTPException(400, "Uploaded file is empty.")
+    limit_uploads(user.id)
+    data = read_upload(file, "RM sheet")
     content_hash = hashlib.sha256(data).hexdigest()
 
     # Idempotency: same bytes uploaded by the same user -> return the existing sheet.
@@ -97,13 +98,17 @@ def upload_rm_sheet(
                     "rebuild the requirement lines with the current rules."
                 ),
             }
-        # Re-parse: the file is unchanged but the parsing rules have. Clear the
-        # derived requirement lines and rebuild them in place, keeping the same
-        # sheet id so assignments elsewhere still point at something real.
-        # POs are deliberately left alone — they are real orders, not derived.
-        user.client.table("rm_requirement").delete().eq(
-            "rm_sheet_id", sheet["id"]
-        ).execute()
+        # Re-parse: the file is unchanged but the parsing rules have. The old
+        # lines are NOT cleared here.
+        #
+        # They used to be, right at this point — before the workbook had even
+        # been read. Everything between here and the insert could fail (a
+        # parser change is exactly what prompts a re-parse, so it is the most
+        # likely moment for it to), and the sheet was then left with its id,
+        # its buyer assignments and its POs, and no requirements for any of
+        # them to refer to. The replacement is now done in one transaction at
+        # the point the new rows exist. POs are untouched either way — they are
+        # real orders, not derived.
         user.client.table("audit_log").insert(
             {
                 "actor_id": user.id,
@@ -294,10 +299,30 @@ def upload_rm_sheet(
         else:
             unresolved += 1
 
-    # Insert requirement rows in chunks.
-    CHUNK = 500
-    for i in range(0, len(to_insert), CHUNK):
-        user.client.table("rm_requirement").insert(to_insert[i : i + CHUNK]).execute()
+    # Delete-and-insert as one statement, so a sheet is never left with a
+    # partial set of requirements — or none.
+    #
+    # Sent whole rather than chunked, because chunking would put each chunk in
+    # its own transaction and the delete inside the first would wipe the
+    # others. A sheet is a few thousand lines, which is a comfortable payload;
+    # something with hundreds of thousands would need a different shape.
+    try:
+        user.client.rpc(
+            "replace_rm_requirements",
+            {"p_sheet_id": sheet_id, "p_rows": to_insert},
+        ).execute()
+    except Exception as e:
+        if not ("PGRST202" in str(e) or "Could not find the function" in str(e)):
+            raise
+        # Until 20260822_atomic_replace.sql is applied.
+        user.client.table("rm_requirement").delete().eq(
+            "rm_sheet_id", sheet_id
+        ).execute()
+        CHUNK = 500
+        for i in range(0, len(to_insert), CHUNK):
+            user.client.table("rm_requirement").insert(
+                to_insert[i : i + CHUNK]
+            ).execute()
 
     distinct_items = len({r["item_code"] for r in to_insert if r["item_code"]})
 

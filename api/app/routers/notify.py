@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import Client
 
+from app.ratelimit import limit_notify
 from app.auth import CurrentUser, get_current_user, require_roles
 from app.config import get_settings
 from app.supabase_client import fetch_all
@@ -253,6 +254,7 @@ def notify_buyers_assigned(
     so a buyer can only ever be told about work actually assigned to them.
     """
     require_roles(user, "purchase_head")
+    limit_notify(user.id)
     sheet = get_sheet(user.client, payload.rm_sheet_id)
     ref = _ref(sheet)
 
@@ -345,6 +347,7 @@ def notify_po_drafted(
     supplier, a sheet would produce a dozen such mails in a minute.
     """
     require_roles(user, "buyer")
+    limit_notify(user.id)
     po = (
         user.client.table("po")
         .select("id, rm_sheet_id, created_by, po_number, etd, site")
@@ -415,6 +418,7 @@ def notify_md_escalations(user: CurrentUser = Depends(get_current_user)):
     and never mailed twice.
     """
     require_roles(user, "approver", "md", "purchase_head")
+    limit_notify(user.id)
 
     # Promote anything past its deadline that the buyer has not resolved.
     # `resolved` rows are excluded by the status filter, so a buyer who
@@ -498,6 +502,7 @@ def notify_buyer_escalation(
 ):
     """Approver escalated a flagged material to its assigned buyer."""
     require_roles(user, "approver")
+    limit_notify(user.id)
     get_sheet(user.client, payload.rm_sheet_id)  # 404 if not visible
 
     to = email_of(user.client, payload.buyer_id)
@@ -527,6 +532,7 @@ def notify_md_decision(
 ):
     """MD approved or rejected — tell the uploader and the purchase head(s)."""
     require_roles(user, "md")
+    limit_notify(user.id)
     if payload.decision not in ("approved", "rejected"):
         raise HTTPException(400, "decision must be 'approved' or 'rejected'.")
 
