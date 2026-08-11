@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { PasswordField } from "@/components/password-field";
 
 const MIN_LENGTH = 8;
 
@@ -152,12 +153,20 @@ export function ResetForm() {
 
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-4">
-      <Field label="New password" name="password" autoFocus />
-      <Field label="Confirm new password" name="confirm" />
-
-      <p className="text-xs text-neutral-500">
-        At least {MIN_LENGTH} characters.
-      </p>
+      <PasswordField
+        label="New password"
+        name="password"
+        autoComplete="new-password"
+        autoFocus
+        minLength={MIN_LENGTH}
+        hint={`At least ${MIN_LENGTH} characters.`}
+      />
+      <PasswordField
+        label="Confirm new password"
+        name="confirm"
+        autoComplete="new-password"
+        minLength={MIN_LENGTH}
+      />
 
       {error && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
@@ -177,29 +186,5 @@ export function ResetForm() {
             : "Set password and sign in"}
       </button>
     </form>
-  );
-}
-
-function Field({
-  label,
-  name,
-  autoFocus,
-}: {
-  label: string;
-  name: string;
-  autoFocus?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium">{label}</span>
-      <input
-        name={name}
-        type="password"
-        autoComplete="new-password"
-        required
-        autoFocus={autoFocus}
-        className="w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-white/15 dark:bg-neutral-950"
-      />
-    </label>
   );
 }
