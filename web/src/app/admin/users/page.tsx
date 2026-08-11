@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { RoleSelect } from "./role-select";
 import { NewUserForm } from "./new-user-form";
+import { UserActions } from "./user-actions";
 
 export default async function AdminUsersPage() {
   const profile = await requireRole("admin");
@@ -31,6 +32,7 @@ export default async function AdminUsersPage() {
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">Role</th>
+              <th className="px-4 py-3 text-right font-medium">Access</th>
             </tr>
           </thead>
           <tbody>
@@ -48,11 +50,18 @@ export default async function AdminUsersPage() {
                     disabled={u.id === profile.userId}
                   />
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <UserActions
+                    userId={u.id}
+                    email={u.email}
+                    isSelf={u.id === profile.userId}
+                  />
+                </td>
               </tr>
             ))}
             {(!users || users.length === 0) && (
               <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-neutral-500">
+                <td colSpan={4} className="px-4 py-6 text-center text-neutral-500">
                   No users yet.
                 </td>
               </tr>

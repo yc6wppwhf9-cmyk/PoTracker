@@ -141,6 +141,169 @@ def create_user(payload: NewUser, user: CurrentUser = Depends(get_current_user))
     return {"id": new_id, "email": email, "role": role}
 
 
+def _gotrue(method: str, path: str, json_body: dict | None = None) -> httpx.Response:
+    """Call the GoTrue admin API with the elevated key."""
+    settings = get_settings()
+    return httpx.request(
+        method,
+        f"{settings.supabase_url}/auth/v1{path}",
+        headers={
+            "apikey": settings.supabase_service_role_key,
+            "Authorization": f"Bearer {settings.supabase_service_role_key}",
+            "Content-Type": "application/json",
+        },
+        json=json_body,
+        timeout=30,
+    )
+
+
+def _guard_target(user: CurrentUser, target_id: str) -> dict:
+    """Refuse the two changes an admin cannot undo from inside the app."""
+    require_roles(user, "admin")
+    if not get_settings().supabase_service_role_key:
+        raise HTTPException(
+            503,
+            "SUPABASE_SERVICE_ROLE_KEY is not set on the API service, so "
+            "accounts cannot be changed from the app.",
+        )
+
+    if target_id == user.id:
+        raise HTTPException(
+            400,
+            "You cannot remove or disable your own account — that is how "
+            "somebody ends up locked out with nobody able to let them back in.",
+        )
+
+    rows = (
+        user.client.table("profiles")
+        .select("id, email, full_name, role")
+        .eq("id", target_id)
+        .limit(1)
+        .execute()
+    ).data
+    if not rows:
+        raise HTTPException(404, "No such user.")
+    target = rows[0]
+
+    if target.get("role") == "admin":
+        others = (
+            user.client.table("profiles")
+            .select("id", count="exact")
+            .eq("role", "admin")
+            .neq("id", target_id)
+            .execute()
+        )
+        if not (others.count or 0):
+            raise HTTPException(
+                400,
+                "That is the only other administrator. Promote someone else "
+                "first, or the application is left with no way to manage "
+                "roles at all.",
+            )
+    return target
+
+
+@router.post("/users/{user_id}/disable")
+def disable_user(user_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Revoke sign-in without touching anything the person did.
+
+    This is the one to reach for. Deleting an account that has uploaded a
+    sheet, raised a PO or approved one is either refused by the database or
+    would take the record with it; disabling ends their access and leaves the
+    trail intact. It is also reversible, which deletion is not.
+    """
+    target = _guard_target(user, user_id)
+
+    # A hundred years. GoTrue has no "disabled" flag, only a ban with a
+    # duration, so an indefinite ban is spelled as one long enough not to
+    # matter.
+    res = _gotrue("PUT", f"/admin/users/{user_id}", {"ban_duration": "876000h"})
+    if res.status_code >= 400:
+        raise HTTPException(502, _explain(res))
+
+    try:
+        user.client.table("audit_log").insert({
+            "actor_id": user.id,
+            "entity": "profiles",
+            "entity_id": user_id,
+            "action": "user_disabled",
+            "detail": {"email": target.get("email")},
+        }).execute()
+    except Exception:
+        pass
+    return {"id": user_id, "disabled": True, "email": target.get("email")}
+
+
+@router.post("/users/{user_id}/enable")
+def enable_user(user_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Restore access to a disabled account."""
+    target = _guard_target(user, user_id)
+
+    res = _gotrue("PUT", f"/admin/users/{user_id}", {"ban_duration": "none"})
+    if res.status_code >= 400:
+        raise HTTPException(502, _explain(res))
+
+    try:
+        user.client.table("audit_log").insert({
+            "actor_id": user.id,
+            "entity": "profiles",
+            "entity_id": user_id,
+            "action": "user_enabled",
+            "detail": {"email": target.get("email")},
+        }).execute()
+    except Exception:
+        pass
+    return {"id": user_id, "disabled": False, "email": target.get("email")}
+
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Remove an account entirely.
+
+    Works only for someone who has done nothing yet — a wrong address, a
+    duplicate, a person who never started. Anyone who has uploaded a sheet,
+    been assigned material, raised or approved a PO, imported a register or
+    appears in the audit trail is referenced by rows that must not lose their
+    author, and the database refuses. That refusal is the right answer and is
+    passed on as advice to disable instead.
+    """
+    target = _guard_target(user, user_id)
+
+    # The audit row goes in FIRST. Written afterwards it would reference an id
+    # that no longer exists, and the one record of the deletion is the thing
+    # least able to afford being lost.
+    try:
+        user.client.table("audit_log").insert({
+            "actor_id": user.id,
+            "entity": "profiles",
+            "entity_id": user_id,
+            "action": "user_deleted",
+            "detail": {
+                "email": target.get("email"),
+                "full_name": target.get("full_name"),
+                "role": target.get("role"),
+            },
+        }).execute()
+    except Exception:
+        pass
+
+    res = _gotrue("DELETE", f"/admin/users/{user_id}")
+    if res.status_code >= 400:
+        body = res.text.lower()
+        if "foreign key" in body or "violates" in body or res.status_code == 500:
+            raise HTTPException(
+                409,
+                f"{target.get('email')} cannot be deleted because their work is "
+                "still recorded — sheets they uploaded, orders they raised or "
+                "approved, or entries in the audit trail. Removing the account "
+                "would leave those records with no author. Disable it instead: "
+                "that ends their access and keeps the history.",
+            )
+        raise HTTPException(502, _explain(res))
+
+    return {"id": user_id, "deleted": True, "email": target.get("email")}
+
+
 def _explain(res: httpx.Response) -> str:
     """GoTrue's own message, or something better where it is unhelpful."""
     try:

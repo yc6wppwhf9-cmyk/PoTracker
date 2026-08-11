@@ -129,3 +129,76 @@ export async function createUser(
   revalidatePath("/admin/users");
   return { error: null, ok: true, email };
 }
+
+
+export type UserActionState = { error: string | null; ok: boolean; message: string | null };
+
+/**
+ * Disable, re-enable, or delete an account.
+ *
+ * All three go through the API for the same reason creation does: they need
+ * the service-role key, which must never reach the web app.
+ */
+async function callAdmin(
+  path: string,
+  method: "POST" | "DELETE"
+): Promise<UserActionState> {
+  await requireRole("admin");
+
+  const base =
+    cleanEnv("API_BASE_URL", process.env.API_BASE_URL) ||
+    cleanEnv("NEXT_PUBLIC_API_BASE_URL", process.env.NEXT_PUBLIC_API_BASE_URL);
+  if (!base)
+    return { error: "API_BASE_URL is not set on the web app.", ok: false, message: null };
+
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token)
+    return { error: "Your session has expired — sign in again.", ok: false, message: null };
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+  } catch (e) {
+    return {
+      error: `Could not reach the account service (${
+        e instanceof Error ? e.message : "failed"
+      }).`,
+      ok: false,
+      message: null,
+    };
+  }
+
+  const raw = await res.text();
+  if (!res.ok) {
+    let detail = raw.slice(0, 400);
+    try {
+      detail = (JSON.parse(raw) as { detail?: string }).detail ?? detail;
+    } catch {}
+    return { error: detail, ok: false, message: null };
+  }
+
+  revalidatePath("/admin/users");
+  return { error: null, ok: true, message: null };
+}
+
+// Declared as async functions, not arrow consts. Every export of a "use
+// server" module has to be an async function for Next to treat it as an
+// action; a const assigned a non-async expression is silently not one, and the
+// failure appears at build time as "export was not found".
+export async function disableUser(id: string): Promise<UserActionState> {
+  return callAdmin(`/admin/users/${id}/disable`, "POST");
+}
+
+export async function enableUser(id: string): Promise<UserActionState> {
+  return callAdmin(`/admin/users/${id}/enable`, "POST");
+}
+
+export async function deleteUser(id: string): Promise<UserActionState> {
+  return callAdmin(`/admin/users/${id}`, "DELETE");
+}
