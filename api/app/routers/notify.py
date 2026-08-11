@@ -253,7 +253,8 @@ def notify_buyers_assigned(
     Assignments are read from the database rather than taken from the request,
     so a buyer can only ever be told about work actually assigned to them.
     """
-    require_roles(user, "purchase_head")
+    # The uploader routes the work here, so they send this too.
+    require_roles(user, "purchase_head", "uploader")
     limit_notify(user.id)
     sheet = get_sheet(user.client, payload.rm_sheet_id)
     ref = _ref(sheet)

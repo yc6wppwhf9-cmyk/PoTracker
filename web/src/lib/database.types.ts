@@ -636,6 +636,14 @@ export type Database = {
         }[]
       }
       buyer_on_sheet: { Args: { sheet: string }; Returns: boolean }
+      buyers_for_assignment: {
+        Args: never
+        Returns: {
+          id: string
+          full_name: string | null
+          email: string | null
+        }[]
+      }
       can_see_po: { Args: { p: string }; Returns: boolean }
       has_role: {
         Args: { roles: Database["public"]["Enums"]["app_role"][] }

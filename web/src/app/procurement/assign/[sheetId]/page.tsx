@@ -13,7 +13,7 @@ export default async function AssignSheetPage({
 }: {
   params: Promise<{ sheetId: string }>;
 }) {
-  const profile = await requireRole("purchase_head");
+  const profile = await requireRole("purchase_head", "uploader");
   const { sheetId } = await params;
   const supabase = await createClient();
 
@@ -38,10 +38,7 @@ export default async function AssignSheetPage({
   );
 
   const { data: buyerRows } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .eq("role", "buyer")
-    .order("full_name", { ascending: true });
+    .rpc("buyers_for_assignment");
 
   const buyers: BuyerOption[] = (buyerRows ?? []).map((b) => ({
     id: b.id,

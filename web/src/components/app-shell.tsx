@@ -138,7 +138,7 @@ function IconLogOut({ className = "h-3.5 w-3.5" }: { className?: string }) {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", roles: [], ready: true, icon: IconDashboard },
   { href: "/procurement/upload", label: "Upload RM Sheet", roles: ["uploader"], ready: true, icon: IconUpload },
-  { href: "/procurement/assign", label: "Assign Buyers", roles: ["purchase_head"], ready: true, icon: IconAssign },
+  { href: "/procurement/assign", label: "Assign Buyers", roles: ["purchase_head", "uploader"], ready: true, icon: IconAssign },
   { href: "/procurement/buyer", label: "Buyer Workspace", roles: ["buyer"], ready: true, icon: IconBuyer },
   // The buyer's own registers. They had none until now — the person who has to
   // phone the supplier was the only role with no way to see what was late.

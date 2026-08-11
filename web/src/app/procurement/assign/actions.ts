@@ -19,7 +19,11 @@ export async function saveAssignments(
   _prev: AssignState,
   formData: FormData
 ): Promise<AssignState> {
-  const me = await requireRole("purchase_head");
+  // The uploader assigns too: here the person who uploads the sheet is the one
+  // who decides which buyer takes which material, and there is no separate
+  // purchase head doing it. RLS scopes them to their own sheets — see
+  // 20260823_uploader_can_assign.sql — so this is not the only check.
+  const me = await requireRole("purchase_head", "uploader");
   const supabase = await createClient();
 
   const sheetId = String(formData.get("sheet_id") ?? "");
@@ -180,7 +184,11 @@ export async function notifyBuyersAction(
   _prev: NotifyBuyersState,
   formData: FormData
 ): Promise<NotifyBuyersState> {
-  const me = await requireRole("purchase_head");
+  // The uploader assigns too: here the person who uploads the sheet is the one
+  // who decides which buyer takes which material, and there is no separate
+  // purchase head doing it. RLS scopes them to their own sheets — see
+  // 20260823_uploader_can_assign.sql — so this is not the only check.
+  const me = await requireRole("purchase_head", "uploader");
   const supabase = await createClient();
 
   const sheetId = String(formData.get("sheet_id") ?? "");

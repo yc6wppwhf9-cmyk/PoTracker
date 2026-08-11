@@ -6,7 +6,7 @@ import { DeleteSheetBtn } from "./delete-sheet-btn";
 import { formatDateTime } from "@/lib/format";
 
 export default async function AssignListPage() {
-  const profile = await requireRole("purchase_head");
+  const profile = await requireRole("purchase_head", "uploader");
   const supabase = await createClient();
 
   const { data: sheets } = await supabase
