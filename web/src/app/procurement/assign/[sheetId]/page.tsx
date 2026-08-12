@@ -122,6 +122,10 @@ export default async function AssignSheetPage({
       return a.label.localeCompare(b.label);
     });
 
+  const unmatchedLines = categoryGroups
+    .filter((g) => g.unmatched)
+    .reduce((n, g) => n + g.lines, 0);
+
   const invGroups: InvItemGroup[] = [...invMap.values()]
     .map((ig) => ({
       itemCode: ig.itemCode,
@@ -155,6 +159,22 @@ export default async function AssignSheetPage({
       <p className="mt-1 text-neutral-500">
         {categoryGroups.length} categories · {invGroups.length} INV item codes. Assign buyers by category or directly by INV code below.
       </p>
+
+      {/* Unmatched lines are flagged up front, not left to be discovered: a line
+          with no catalogue code cannot be routed to a buyer, and it is invisible
+          in reconciliation (which only counts matched lines), so if it is not
+          resolved here it silently drops out of the order entirely. */}
+      {unmatchedLines > 0 && (
+        <p className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          <span aria-hidden="true">⚠</span>
+          <span>
+            <strong>{unmatchedLines} line(s)</strong> could not be matched to the
+            item catalogue — highlighted in red below. Register the item code (or
+            fix it on the sheet and re-upload) before these can be assigned;
+            until then they are left out of the order.
+          </span>
+        </p>
+      )}
 
       {buyers.length === 0 ? (
         <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">

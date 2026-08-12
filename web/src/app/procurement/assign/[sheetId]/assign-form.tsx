@@ -198,10 +198,31 @@ export function AssignForm({
               {groups.map((g) => (
                 <tr
                   key={g.key}
-                  className="border-b border-black/5 last:border-0 dark:border-white/5"
+                  className={`border-b border-black/5 last:border-0 dark:border-white/5 ${
+                    g.unmatched
+                      ? "bg-rose-50 dark:bg-rose-950/30"
+                      : g.needsReview
+                        ? "bg-amber-50 dark:bg-amber-950/20"
+                        : ""
+                  }`}
                 >
                   <td className="px-4 py-3 font-medium">
-                    {g.label}
+                    <span className="inline-flex items-center gap-2">
+                      {g.unmatched && (
+                        <span className="text-rose-500" aria-hidden="true">⚠</span>
+                      )}
+                      {g.label}
+                    </span>
+                    {g.unmatched && (
+                      <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                        not in catalogue
+                      </span>
+                    )}
+                    {!g.unmatched && g.needsReview && (
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                        needs review
+                      </span>
+                    )}
                     {g.mixed && (
                       <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                         mixed
