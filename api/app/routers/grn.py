@@ -300,7 +300,7 @@ class _Acting:
 # be applied to the messages it was written for, because they are all already
 # marked as judged. Cheap insurance — the cost of a needless bump is one extra
 # pass over mail that gets rejected again.
-_FILTER_VERSION = 2
+_FILTER_VERSION = 3
 
 
 def _filter_key(settings) -> str:
@@ -432,6 +432,10 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             # register never reaches the front of it. See fetch_unseen.
             from_addresses=settings.grn_allowed_senders,
             already_rejected=lambda: _rejected_by_this_filter(acting, key),
+            # Given to the fetch as well as checked below, so mail that cannot
+            # be a register is turned down on its headers and its body never
+            # crosses the wire.
+            subject_contains=settings.grn_subject_contains,
         )
     except Exception as e:
         raise HTTPException(502, f"Could not read the mailbox: {e}")
@@ -473,8 +477,15 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             results.append({"message": subject, "status": "already imported"})
             continue
 
-        ok, why = should_process(
-            msg, settings.grn_allowed_senders, settings.grn_subject_contains
+        # Already turned down on its headers, with no body fetched. The check
+        # below would reach the same verdict; this just avoids pretending we
+        # looked at a message we deliberately did not download.
+        ok, why = (
+            (False, entry["header_reject"])
+            if entry.get("header_reject")
+            else should_process(
+                msg, settings.grn_allowed_senders, settings.grn_subject_contains
+            )
         )
         if not ok:
             # Recorded, but deliberately NOT marked read. Someone else's mail

@@ -64,16 +64,21 @@ def _squash(s: str) -> str:
     return " ".join(s.split()).lower()
 
 
-def should_process(
+def matches_headers(
     msg: Message,
     allowed_senders: Iterable[str],
     subject_contains: str = "",
 ) -> tuple[bool, str]:
-    """Decide whether a message is a GRN register. Returns (yes, why not).
+    """The part of the decision that needs only the headers.
 
-    The sender allowlist is the security boundary. Anyone who learns the address
-    could otherwise post a spreadsheet into the goods-received record, which
-    feeds what the approver believes has been delivered.
+    Split out so mail can be rejected before its body is downloaded. Both of
+    these checks read headers, and a mailbox where most messages are not
+    registers should not cost one full download each to establish that — the
+    registers here carry nine spreadsheets apiece, and pulling fifty of those
+    to discard them is how a small instance runs out of memory.
+
+    Not a weaker check than should_process, just an earlier one: anything that
+    passes here is checked again, on the whole message, before it is imported.
     """
     senders = [s.strip().lower() for s in allowed_senders if s.strip()]
     frm = sender_address(msg)
@@ -105,6 +110,24 @@ def should_process(
         subject = _squash(_decode(msg.get("Subject")))
         if _squash(subject_contains) not in subject:
             return False, "subject does not match"
+
+    return True, ""
+
+
+def should_process(
+    msg: Message,
+    allowed_senders: Iterable[str],
+    subject_contains: str = "",
+) -> tuple[bool, str]:
+    """Decide whether a whole message is a GRN register. Returns (yes, why not).
+
+    The sender allowlist is the security boundary. Anyone who learns the address
+    could otherwise post a spreadsheet into the goods-received record, which
+    feeds what the approver believes has been delivered.
+    """
+    ok, why = matches_headers(msg, allowed_senders, subject_contains)
+    if not ok:
+        return ok, why
 
     if not spreadsheet_attachments(msg):
         return False, "no spreadsheet attached"
@@ -164,26 +187,40 @@ _SEQ_NO = re.compile(rb"^\s*(\d+)\s+\(")
 # Enough to identify a message — including the fallback identity used when
 # Message-ID is missing. Headers only, so this stays one small round trip even
 # when the search matches thousands.
-_ID_HEADERS = "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID DATE FROM SUBJECT)])"
+_ID_HEADERS = "(BODY.PEEK[HEADER])"
+
+# Headers are small, but a thousand of them in one command is a very long line
+# and servers differ on how much they will take.
+_HEADER_CHUNK = 200
+
+
+def _headers(conn: imaplib.IMAP4, ids: list[bytes]) -> dict[str, Message]:
+    """{sequence number: message, headers only} — cheap enough to do for all."""
+    out: dict[str, Message] = {}
+    for i in range(0, len(ids), _HEADER_CHUNK):
+        chunk = ids[i : i + _HEADER_CHUNK]
+        if not chunk:
+            continue
+        try:
+            typ, payload = conn.fetch(b",".join(chunk), _ID_HEADERS)
+        except Exception:
+            continue
+        if typ != "OK" or not payload:
+            continue
+        for item in payload:
+            if not isinstance(item, tuple) or len(item) < 2:
+                continue
+            m = _SEQ_NO.match(item[0] or b"")
+            raw = item[1]
+            if not m or not isinstance(raw, (bytes, bytearray)):
+                continue
+            out[m.group(1).decode()] = email.message_from_bytes(bytes(raw))
+    return out
 
 
 def _identify(conn: imaplib.IMAP4, ids: list[bytes]) -> dict[str, str]:
-    """{sequence number: message_id} for the given messages, in one fetch."""
-    out: dict[str, str] = {}
-    if not ids:
-        return out
-    typ, payload = conn.fetch(b",".join(ids), _ID_HEADERS)
-    if typ != "OK" or not payload:
-        return out
-    for item in payload:
-        if not isinstance(item, tuple) or len(item) < 2:
-            continue
-        m = _SEQ_NO.match(item[0] or b"")
-        raw = item[1]
-        if not m or not isinstance(raw, (bytes, bytearray)):
-            continue
-        out[m.group(1).decode()] = message_id(email.message_from_bytes(bytes(raw)))
-    return out
+    """{sequence number: message_id} for the given messages."""
+    return {seq: message_id(msg) for seq, msg in _headers(conn, ids).items()}
 
 
 def fetch_unseen(
@@ -195,8 +232,15 @@ def fetch_unseen(
     port: int = 993,
     from_addresses: Iterable[str] = (),
     already_rejected: Callable[[], set[str]] | None = None,
+    subject_contains: str = "",
+    reject_limit: int = 300,
 ) -> list[dict[str, Any]]:
-    """Return up to `limit` unread messages from the given senders, OLDEST first.
+    """Candidate GRN registers among the unread mail, OLDEST first.
+
+    Returns entries of {uid, msg, header_reject}. Where `header_reject` is set
+    the message was turned down on its headers and `msg` holds headers only —
+    enough to record why, and nothing was downloaded. Where it is None the whole
+    message is present and worth examining properly.
 
     Messages are NOT marked read here. That happens only after a successful
     import, so a crash mid-import leaves the mail to be picked up next run
@@ -232,6 +276,14 @@ def fetch_unseen(
     they filled the window exactly as the newsletters had. The limit has to
     apply to mail nobody has judged yet, or it is a limit on progress rather
     than on work.
+
+    Bodies are downloaded only for mail that passes the header checks, so
+    `limit` bounds registers parsed rather than emails read. That distinction is
+    what makes the backlog survivable: this inbox holds over a thousand
+    messages, most of them not registers, and downloading fifty whole emails per
+    run to discard them took twenty runs to get anywhere. It is also the safer
+    end: a register here carries nine spreadsheets, and fifty of those pulled at
+    once is how a small instance dies mid-run.
     """
     conn = imaplib.IMAP4_SSL(host, port)
     try:
@@ -252,25 +304,53 @@ def fetch_unseen(
         # there permanently. A register that arrives while the job is failing
         # is exactly the one that must not be skipped.
         ids = (data[0] or b"").split()
+        if not ids:
+            return []
 
-        if already_rejected is not None and ids:
+        heads = _headers(conn, ids)
+
+        judged: set[str] = set()
+        if already_rejected is not None:
             try:
                 judged = already_rejected()
             except Exception:
                 # Losing this costs efficiency, not correctness — fall back to
                 # examining everything rather than importing nothing.
                 judged = set()
-            if judged:
-                # A message whose headers could not be read is kept: unknown
-                # means unjudged, and the expensive mistake is the one that
-                # drops a register.
-                mids = _identify(conn, ids)
-                ids = [i for i in ids if mids.get(i.decode()) not in judged]
-
-        ids = ids[:limit]
 
         out: list[dict[str, Any]] = []
+        wanted: list[bytes] = []
+        rejected = 0
+
         for num in ids:
+            seq = num.decode()
+            head = heads.get(seq)
+            if head is None:
+                # Unknown means unjudged. The expensive mistake is the one that
+                # drops a register, so an unreadable header earns a full look.
+                wanted.append(num)
+                if len(wanted) >= limit:
+                    break
+                continue
+
+            if message_id(head) in judged:
+                continue
+
+            ok, why = matches_headers(head, from_addresses, subject_contains)
+            if not ok:
+                # Recorded by the caller, not downloaded. These are re-read
+                # every run until the caller records them, which costs one
+                # header fetch each.
+                if rejected < reject_limit:
+                    rejected += 1
+                    out.append({"uid": seq, "msg": head, "header_reject": why})
+                continue
+
+            wanted.append(num)
+            if len(wanted) >= limit:
+                break
+
+        for num in wanted:
             # BODY.PEEK avoids setting \Seen just by looking.
             typ, payload = conn.fetch(num, "(BODY.PEEK[])")
             if typ != "OK" or not payload or not payload[0]:
@@ -279,7 +359,7 @@ def fetch_unseen(
             if not isinstance(raw, (bytes, bytearray)):
                 continue
             msg = email.message_from_bytes(bytes(raw))
-            out.append({"uid": num.decode(), "msg": msg})
+            out.append({"uid": num.decode(), "msg": msg, "header_reject": None})
         return out
     finally:
         try:

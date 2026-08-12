@@ -2,6 +2,7 @@ from email.message import EmailMessage
 
 from app.mailbox import (
     _identify,
+    matches_headers,
     search_criteria,
     message_id,
     sender_address,
@@ -263,3 +264,31 @@ def test_a_message_whose_headers_are_unreadable_is_still_examined():
     judged = {"<1@hscvpl.com>"}
     kept = [i for i in (b"1", b"2") if found.get(i.decode()) not in judged]
     assert kept == [b"2"]
+
+
+def test_headers_alone_decide_most_rejections():
+    """The header checks must not need the body, or the body gets downloaded
+    just to reject it — fifty nine-attachment registers per run on a small
+    instance, to discard most of them."""
+    no_attachment = EmailMessage()
+    no_attachment["From"] = "erp@hscvpl.in"
+    no_attachment["Subject"] = "GRN REPORT"
+
+    ok, _ = matches_headers(no_attachment, ALLOWED, "GRN REPORT")
+    assert ok  # headers alone cannot know, and must not guess
+
+    # The whole-message check is the one that requires a spreadsheet.
+    ok, why = should_process(no_attachment, ALLOWED, "GRN REPORT")
+    assert not ok and why == "no spreadsheet attached"
+
+
+def test_the_header_check_is_not_weaker_than_the_full_one():
+    """Anything should_process accepts, matches_headers must also accept —
+    otherwise a register is dropped before its body is ever fetched."""
+    real = _mail(subject="GRN REPORT")  # right sender, subject and attachment
+    assert should_process(real, ALLOWED, "GRN REPORT")[0]
+    assert matches_headers(real, ALLOWED, "GRN REPORT")[0]
+
+    wrong_sender = _mail(frm="someone@else.com", subject="GRN REPORT")
+    assert not matches_headers(wrong_sender, ALLOWED, "GRN REPORT")[0]
+    assert not should_process(wrong_sender, ALLOWED, "GRN REPORT")[0]
