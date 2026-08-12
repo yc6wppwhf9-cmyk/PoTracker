@@ -8,11 +8,19 @@ export default async function BuyerHome() {
   const profile = await requireRole("buyer");
   const supabase = await createClient();
 
-  // Sheets where this buyer has assigned lines.
-  const { data: mine } = await supabase
+  // Admin is given the whole board, not just their own assignments: nothing is
+  // ever assigned TO an admin, so the buyer-scoped view is always empty for
+  // them. Opening it up lets an admin exercise the buyer flow end to end
+  // without first assigning a sheet to themselves.
+  const isAdmin = profile.role === "admin";
+
+  // Sheets where this buyer has assigned lines (every sheet, for an admin).
+  const reqQuery = supabase
     .from("rm_requirement")
-    .select("rm_sheet_id, rm_sheet(style_ref, status, created_at)")
-    .eq("assigned_buyer", profile.userId);
+    .select("rm_sheet_id, rm_sheet(style_ref, status, created_at)");
+  const { data: mine } = await (isAdmin
+    ? reqQuery
+    : reqQuery.eq("assigned_buyer", profile.userId));
 
   // Collapse to distinct sheets with a line count.
   const bySheet = new Map<
@@ -41,9 +49,18 @@ export default async function BuyerHome() {
 
   return (
     <AppShell profile={profile}>
-      <h1 className="text-2xl font-semibold tracking-tight">Buyer workspace</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">
+        Buyer workspace
+        {isAdmin && (
+          <span className="ml-2 rounded-full bg-indigo-100 px-2.5 py-0.5 text-sm font-semibold text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+            admin view
+          </span>
+        )}
+      </h1>
       <p className="mt-1 text-neutral-500">
-        Sheets with items assigned to you. Open one to draft a PO.
+        {isAdmin
+          ? "Every sheet, so you can exercise the buyer flow without a self-assignment. Open one to draft a PO."
+          : "Sheets with items assigned to you. Open one to draft a PO."}
       </p>
 
       <EscalationsView mode="buyer" title="Escalations for you — resolve promptly" />
@@ -53,7 +70,7 @@ export default async function BuyerHome() {
           <thead className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-white/10">
             <tr>
               <th className="px-4 py-3 font-medium">Sheet</th>
-              <th className="px-4 py-3 font-medium">Your lines</th>
+              <th className="px-4 py-3 font-medium">{isAdmin ? "Lines" : "Your lines"}</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3"></th>
             </tr>
@@ -86,7 +103,9 @@ export default async function BuyerHome() {
             {sheets.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-neutral-500">
-                  Nothing assigned to you yet.
+                  {isAdmin
+                    ? "No sheets have been uploaded yet."
+                    : "Nothing assigned to you yet."}
                 </td>
               </tr>
             )}

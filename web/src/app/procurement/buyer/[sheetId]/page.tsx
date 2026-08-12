@@ -55,6 +55,10 @@ export default async function BuyerSheetPage({
   const { sheetId } = await params;
   const supabase = await createClient();
 
+  // An admin sees every assigned line on the sheet, not just their own (they
+  // have none), so the full buyer flow can be tested without a self-assignment.
+  const isAdmin = profile.role === "admin";
+
   const sheetQuery = supabase
     .from("rm_sheet")
     .select("id, style_ref, status")
@@ -64,16 +68,15 @@ export default async function BuyerSheetPage({
   // This buyer's assigned lines for the sheet, with catalogue detail.
   // Paged: a truncated read would hide orderable lines from the buyer, so the
   // PO they raise would under-order.
-  const linesQuery = fetchAll((from, to) =>
-    supabase
+  const linesQuery = fetchAll((from, to) => {
+    let q = supabase
       .from("rm_requirement")
       .select("item_code, lot, location, required_qty, item_master(name, category)")
       .eq("rm_sheet_id", sheetId)
-      .eq("assigned_buyer", profile.userId)
-      .not("item_code", "is", null)
-      .order("id")
-      .range(from, to)
-  );
+      .not("item_code", "is", null);
+    if (!isAdmin) q = q.eq("assigned_buyer", profile.userId);
+    return q.order("id").range(from, to);
+  });
 
   // What is already on a PO for this sheet, per (item_code, lot, plant).
   //
@@ -171,14 +174,15 @@ export default async function BuyerSheetPage({
         {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
       </h1>
       <p className="mt-1 text-neutral-500">
-        {items.length} item(s) assigned to you. Select the items you are
-        ordering, then record the supplier and rate for each.
+        {items.length} item(s) {isAdmin ? "on this sheet" : "assigned to you"}.
+        Select the items you are ordering, then record the supplier and rate for
+        each.
       </p>
 
       <div className="mt-6">
         {items.length === 0 ? (
           <p className="rounded-xl border border-black/10 bg-white px-4 py-6 text-center text-neutral-500 dark:border-white/10 dark:bg-neutral-900">
-            No items assigned to you on this sheet.
+            {isAdmin ? "This sheet has no orderable items." : "No items assigned to you on this sheet."}
           </p>
         ) : (
           <PoForm sheetId={sheetId} items={items} />
