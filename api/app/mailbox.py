@@ -130,6 +130,35 @@ def message_id(msg: Message) -> str:
     )
 
 
+def _quote(addr: str) -> str:
+    """An address safe to put inside an IMAP quoted string."""
+    return "".join(c for c in addr if c.isprintable() and c not in '"\\').strip()
+
+
+def search_criteria(from_addresses: Iterable[str] = ()) -> str:
+    """The IMAP SEARCH expression for "unread, and from someone we care about".
+
+    Filtering at the server rather than in Python is not an optimisation, it is
+    the difference between working and not. See fetch_unseen.
+
+    Sender only — deliberately not subject. The real register's subject is
+    "GRN  REPORT" with two spaces, and IMAP SEARCH compares substrings without
+    normalising whitespace, so a server-side subject filter would reject the
+    very message it was written to find. Python's should_process collapses the
+    whitespace and can be trusted with that comparison; the server cannot.
+
+    IMAP's OR is a prefix operator taking exactly two arguments, so a list of
+    three becomes `OR a OR b c` rather than anything resembling a SQL IN.
+    """
+    terms = [f'FROM "{q}"' for q in (_quote(a) for a in from_addresses) if q]
+    if not terms:
+        return "UNSEEN"
+    expr = terms[0]
+    for t in terms[1:]:
+        expr = f"OR {t} {expr}"
+    return f"UNSEEN {expr}"
+
+
 def fetch_unseen(
     host: str,
     user: str,
@@ -137,18 +166,48 @@ def fetch_unseen(
     folder: str = "INBOX",
     limit: int = 50,
     port: int = 993,
+    from_addresses: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
-    """Return up to `limit` unread messages, OLDEST first.
+    """Return up to `limit` unread messages from the given senders, OLDEST first.
 
     Messages are NOT marked read here. That happens only after a successful
     import, so a crash mid-import leaves the mail to be picked up next run
     rather than losing a delivery silently.
+
+    `from_addresses` matters more than it looks. Two earlier decisions, each
+    right on its own, combine badly without it:
+
+      * this takes the OLDEST unread messages, so a backlog is worked through
+        from the front rather than being stranded behind newer mail;
+      * a message skipped by the sender or subject filter is left UNREAD, so
+        that correcting the filter can still pick it up.
+
+    Point both at a real mailbox with years of unread newsletters in it and the
+    job jams solid. The oldest fifty are all newsletters, all skipped, all left
+    unread — so the next run reads the same fifty, and the register sitting
+    behind them is never reached. Not slowly: never. That is exactly what
+    happened here, with the front of the queue held by Google My Business mail
+    from 2020.
+
+    Asking the server for the register's sender only means the backlog is not
+    merely deprioritised, it is invisible, and `limit` applies to messages that
+    could plausibly be a register rather than to the inbox at large.
+
+    This is not the security boundary — should_process still decides, on the
+    real headers, and IMAP's own FROM matching is a loose substring test not
+    worth trusting. It is how the right messages get looked at at all.
     """
     conn = imaplib.IMAP4_SSL(host, port)
     try:
         conn.login(user, password)
         conn.select(folder)
-        typ, data = conn.search(None, "UNSEEN")
+        criteria = search_criteria(from_addresses)
+        typ, data = conn.search(None, criteria)
+        if typ != "OK" and criteria != "UNSEEN":
+            # A server that dislikes the expression must not mean no imports at
+            # all. Fall back to the plain search; the jam is better than silence
+            # and should_process still guards what gets stored.
+            typ, data = conn.search(None, "UNSEEN")
         if typ != "OK":
             return []
         # OLDEST first. This took the newest `limit`, so once more than that

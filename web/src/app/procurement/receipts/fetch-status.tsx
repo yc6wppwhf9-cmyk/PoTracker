@@ -44,6 +44,15 @@ export async function FetchStatus() {
   const lastImport = rows.find((r) => r.status === "imported");
   const failures = rows.filter((r) => r.status === "failed");
 
+  // Only imports and failures used to be shown, and skipped messages appeared
+  // nowhere at all. So when the job spent a day reading the same fifty unread
+  // newsletters and rejecting every one, the panel said "Last checked" and
+  // looked healthy. The job was explaining itself into a table nothing
+  // displayed. Worth surfacing only when nothing is getting through: a skip
+  // beside a working import is ordinary mailbox noise.
+  const skipped = rows.filter((r) => r.status === "skipped");
+  const nothingGettingThrough = !lastImport && skipped.length > 0;
+
   // Reading the clock is impure, which the rule flags — but this is a Server
   // Component rendered once per request, not a client component that may
   // re-render at any moment, so "now" cannot shift underneath the output.
@@ -59,7 +68,7 @@ export async function FetchStatus() {
   return (
     <div
       className={`mb-4 rounded-xl border px-4 py-3 text-xs ${
-        failures.length > 0 || stale
+        failures.length > 0 || stale || nothingGettingThrough
           ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
           : "border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900"
       }`}
@@ -95,6 +104,29 @@ export async function FetchStatus() {
           — {lastImport.lines.toLocaleString()} line(s) on{" "}
           {formatDateTime(lastImport.processed_at)}
         </p>
+      )}
+
+      {nothingGettingThrough && (
+        <div className="mt-1 text-amber-800 dark:text-amber-300">
+          <p>
+            The job is running but has imported nothing. The last{" "}
+            {skipped.length} message(s) it looked at were rejected:
+          </p>
+          <ul className="mt-0.5 space-y-0.5 pl-4">
+            {skipped.slice(0, 3).map((s) => (
+              <li key={s.message_id} className="list-disc">
+                <span className="text-neutral-600 dark:text-neutral-400">
+                  {s.sender ?? "unknown sender"}
+                </span>{" "}
+                — {s.detail}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-0.5 text-neutral-500">
+            If none of those is the ERP, check GRN_ALLOWED_SENDERS and
+            GRN_SUBJECT_CONTAINS on the API service.
+          </p>
+        </div>
       )}
 
       {failures.length > 0 && (

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hmac
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -307,6 +307,13 @@ def _log_mail(acting, mid, sender, subject, filename, status, detail, lines):
                 "detail": detail,
                 "lines": lines,
                 "processed_by": acting.id,
+                # Sent explicitly, because the column's `default now()` fires
+                # only on INSERT and this is an upsert. A message seen again on
+                # every run kept the timestamp of the first time it was seen —
+                # so the screen's "Last checked" froze a day ago while the job
+                # was running fine every five minutes, which is precisely the
+                # question that panel exists to answer.
+                "processed_at": datetime.now(timezone.utc).isoformat(),
             },
             on_conflict="message_id",
         ).execute()
@@ -352,6 +359,9 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             settings.imap_user,
             settings.imap_password,
             settings.imap_folder,
+            # Without this the search returns the whole unread backlog and the
+            # register never reaches the front of it. See fetch_unseen.
+            from_addresses=settings.grn_allowed_senders,
         )
     except Exception as e:
         raise HTTPException(502, f"Could not read the mailbox: {e}")

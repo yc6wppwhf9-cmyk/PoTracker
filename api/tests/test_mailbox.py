@@ -1,6 +1,7 @@
 from email.message import EmailMessage
 
 from app.mailbox import (
+    search_criteria,
     message_id,
     sender_address,
     should_process,
@@ -142,3 +143,49 @@ def test_an_empty_allowlist_accepts_nothing():
     # Whitespace-only is the same mistake wearing a different hat.
     ok, _ = should_process(_mail(), ["  ", ""])
     assert not ok
+
+
+# ─── The server-side search ────────────────────────────────────────────────
+#
+# The job jammed for a day on a mailbox holding years of unread Google
+# newsletters: it reads the OLDEST unread mail first, and leaves anything it
+# skips unread so a corrected filter can still find it. The oldest fifty were
+# all newsletters, all skipped, all left unread — so every run re-read the same
+# fifty and the register behind them was never reached. Asking the server for
+# the register's sender is what makes the backlog invisible.
+
+
+def test_search_asks_the_server_for_the_sender():
+    assert search_criteria(["admin@hscvpl.com"]) == 'UNSEEN FROM "admin@hscvpl.com"'
+
+
+def test_search_with_no_senders_is_plain_unseen():
+    # should_process refuses everything in this case anyway; the search must
+    # still be a valid expression rather than a syntax error.
+    assert search_criteria([]) == "UNSEEN"
+
+
+def test_or_is_a_prefix_operator_taking_two_arguments():
+    """IMAP's OR is not SQL's IN, and getting it wrong returns nothing at all —
+    silently, which is how this class of bug survives."""
+    two = search_criteria(["a@x.com", "b@y.com"])
+    assert two == 'UNSEEN OR FROM "b@y.com" FROM "a@x.com"'
+
+    three = search_criteria(["a@x.com", "b@y.com", "c@z.com"])
+    # One OR per additional term, each binding two arguments.
+    assert three.count("OR ") == 2
+    for a in ("a@x.com", "b@y.com", "c@z.com"):
+        assert f'FROM "{a}"' in three
+
+
+def test_a_quote_in_an_address_cannot_break_out_of_the_search():
+    crit = search_criteria(['bad"@x.com', "ok@y.com"])
+    assert crit.count('"') == 4  # two quoted strings, nothing loose
+    assert 'FROM "bad@x.com"' in crit
+
+
+def test_the_subject_is_deliberately_not_in_the_server_search():
+    """The real subject is "GRN  REPORT" with two spaces. IMAP compares
+    substrings without collapsing whitespace, so a server-side subject filter
+    would reject the one message it exists to find."""
+    assert "SUBJECT" not in search_criteria(["admin@hscvpl.com"])
