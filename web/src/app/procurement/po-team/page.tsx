@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 
 export default async function PoTeamHome() {
   const profile = await requireRole("po_team");
@@ -14,16 +15,32 @@ export default async function PoTeamHome() {
 
   // Counted here rather than as an embedded po(count), which would include the
   // buyer's drafts — POs the PO team cannot see and must not be told to expect.
-  const { data: sentPos } = await supabase
-    .from("po")
-    .select("id, rm_sheet_id")
-    .neq("status", "draft");
+  //
+  // Paged: past a thousand orders Supabase truncates without an error, and the
+  // counts would quietly understate, hiding sheets that do have work.
+  const sentPos = await fetchAll<{ id: string; rm_sheet_id: string }>(
+    (from, to) =>
+      supabase
+        .from("po")
+        .select("id, rm_sheet_id")
+        .neq("status", "draft")
+        .order("id")
+        .range(from, to)
+  );
   const poCountBySheet = new Map<string, number>();
-  for (const p of sentPos ?? [])
+  for (const p of sentPos)
     poCountBySheet.set(
-      p.rm_sheet_id as string,
-      (poCountBySheet.get(p.rm_sheet_id as string) ?? 0) + 1
+      p.rm_sheet_id,
+      (poCountBySheet.get(p.rm_sheet_id) ?? 0) + 1
     );
+
+  // Only sheets that actually have work here.
+  //
+  // Every sheet was listed and then annotated with a count, so a sheet whose
+  // buyers have not sent anything appeared with 0 POs and an Open button
+  // leading to an empty page. This screen is a queue: a row on it should mean
+  // there is something to attach.
+  const withWork = (sheets ?? []).filter((s) => (poCountBySheet.get(s.id) ?? 0) > 0);
 
   return (
     <AppShell profile={profile}>
@@ -44,7 +61,7 @@ export default async function PoTeamHome() {
             </tr>
           </thead>
           <tbody>
-            {(sheets ?? []).map((s) => {
+            {withWork.map((s) => {
               const poCount = poCountBySheet.get(s.id) ?? 0;
               return (
                 <tr
@@ -71,10 +88,11 @@ export default async function PoTeamHome() {
                 </tr>
               );
             })}
-            {(!sheets || sheets.length === 0) && (
+            {withWork.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-neutral-500">
-                  No sheets yet.
+                  Nothing to do — no buyer has sent you a purchase order yet.
+                  Sheets appear here once one does.
                 </td>
               </tr>
             )}

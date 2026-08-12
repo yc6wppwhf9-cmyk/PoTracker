@@ -220,7 +220,6 @@ export function ReconTabs({
             <tr className="border-b border-slate-200/80 text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:border-slate-800/80">
               <th className="px-4 py-3.5">Item Name</th>
               <th className="px-4 py-3.5">Item Code</th>
-              <th className="px-4 py-3.5">Plant</th>
               <th className="px-4 py-3.5">Lot</th>
               <th className="px-4 py-3.5">Category</th>
               <th className="px-4 py-3.5 text-right">Required</th>
@@ -259,9 +258,6 @@ export function ReconTabs({
                     <span className="inline-block rounded-md border border-slate-200/80 bg-slate-100/80 px-2 py-0.5 font-mono text-xs font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                       {r.item_code}
                     </span>
-                  </td>
-                  <td className="px-4 py-3.5 font-medium text-slate-600 dark:text-slate-300">
-                    {r.location ?? "—"}
                   </td>
                   <td className="px-4 py-3.5 font-medium text-slate-600 dark:text-slate-300">
                     {r.lot ?? "—"}
@@ -312,7 +308,7 @@ export function ReconTabs({
             })}
             {pageRows.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
                   {searchQuery
                     ? `No items matching "${searchQuery}" found under ${meta.label}.`
                     : `No items found for status "${meta.label}".`}
