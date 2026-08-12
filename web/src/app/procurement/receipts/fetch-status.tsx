@@ -114,11 +114,19 @@ export async function FetchStatus() {
           </p>
           <ul className="mt-0.5 space-y-0.5 pl-4">
             {skipped.slice(0, 3).map((s) => (
+              // The subject leads, not the sender. Once the sender filter is
+              // right every rejection names the same address, and the line
+              // repeats three times saying nothing — while the subject, which
+              // is what the remaining filter is actually judging, was the one
+              // thing not on screen. Quoted, because the failures here are
+              // stray whitespace and punctuation that are invisible without
+              // something to butt up against.
               <li key={s.message_id} className="list-disc">
-                <span className="text-neutral-600 dark:text-neutral-400">
-                  {s.sender ?? "unknown sender"}
+                <span className="text-neutral-700 dark:text-neutral-300">
+                  &ldquo;{s.subject || "(no subject)"}&rdquo;
                 </span>{" "}
                 — {s.detail}
+                <span className="text-neutral-500"> (from {s.sender ?? "?"})</span>
               </li>
             ))}
           </ul>
