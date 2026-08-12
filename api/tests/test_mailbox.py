@@ -1,6 +1,7 @@
 from email.message import EmailMessage
 
 from app.mailbox import (
+    _identify,
     search_criteria,
     message_id,
     sender_address,
@@ -189,3 +190,76 @@ def test_the_subject_is_deliberately_not_in_the_server_search():
     substrings without collapsing whitespace, so a server-side subject filter
     would reject the one message it exists to find."""
     assert "SUBJECT" not in search_criteria(["admin@hscvpl.com"])
+
+
+# ─── The window must hold unjudged mail ────────────────────────────────────
+
+
+class _FakeIMAP:
+    """Just enough IMAP to exercise the selection logic."""
+
+    def __init__(self, messages):
+        # {sequence number: EmailMessage}
+        self.messages = messages
+        self.fetched_bodies = []
+
+    def search(self, charset, criteria):
+        return "OK", [b" ".join(k.encode() for k in self.messages)]
+
+    def fetch(self, ids, spec):
+        wanted = ids.decode().split(",") if isinstance(ids, bytes) else [ids]
+        out = []
+        for n in wanted:
+            # A real server simply returns fewer items for ids it cannot serve.
+            msg = self.messages.get(n)
+            if msg is None:
+                continue
+            if "HEADER.FIELDS" not in spec:
+                self.fetched_bodies.append(n)
+            out.append((f"{n} (".encode(), msg.as_bytes()))
+        return "OK", out
+
+
+def _register(n):
+    m = EmailMessage()
+    m["Message-ID"] = f"<{n}@hscvpl.com>"
+    m["From"] = "admin@hscvpl.com"
+    m["Subject"] = f"message {n}"
+    return m
+
+
+def test_rejected_mail_does_not_fill_the_window():
+    """The jam, twice over.
+
+    Skipped mail is left unread on purpose so a corrected filter can find it.
+    But the fetch takes the oldest N matches, so mail that is never accepted and
+    never marked read accumulates in front of everything else: first fifty
+    Google newsletters, then fifty purchase order emails from the ERP itself.
+    Each run re-read the same fifty and a register behind them was unreachable.
+    """
+    msgs = {str(i): _register(i) for i in range(1, 8)}
+    conn = _FakeIMAP(msgs)
+
+    # The first five have already been turned down by this exact filter.
+    judged = {f"<{i}@hscvpl.com>" for i in range(1, 6)}
+
+    ids = [k.encode() for k in msgs]
+    found = _identify(conn, ids)
+    remaining = [i for i in ids if found.get(i.decode()) not in judged]
+
+    # With a window of two, the naive order would return messages 1 and 2 —
+    # both already rejected — and never reach 6 and 7.
+    assert [i.decode() for i in remaining[:2]] == ["6", "7"]
+
+
+def test_a_message_whose_headers_are_unreadable_is_still_examined():
+    """Unknown means unjudged. The expensive mistake is dropping a register."""
+    found = _identify(_FakeIMAP({"1": _register(1)}), [b"1", b"2"])
+    assert found["1"] == "<1@hscvpl.com>"
+    assert "2" not in found
+
+    # Which is what matters: with no identity it cannot be matched against the
+    # rejected set, so it survives the filter and gets looked at.
+    judged = {"<1@hscvpl.com>"}
+    kept = [i for i in (b"1", b"2") if found.get(i.decode()) not in judged]
+    assert kept == [b"2"]

@@ -14,7 +14,7 @@ import imaplib
 import re
 from email.header import decode_header, make_header
 from email.message import Message
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 SPREADSHEET_EXT = (".xlsx", ".xlsm", ".xls")
 
@@ -159,6 +159,33 @@ def search_criteria(from_addresses: Iterable[str] = ()) -> str:
     return f"UNSEEN {expr}"
 
 
+_SEQ_NO = re.compile(rb"^\s*(\d+)\s+\(")
+
+# Enough to identify a message — including the fallback identity used when
+# Message-ID is missing. Headers only, so this stays one small round trip even
+# when the search matches thousands.
+_ID_HEADERS = "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID DATE FROM SUBJECT)])"
+
+
+def _identify(conn: imaplib.IMAP4, ids: list[bytes]) -> dict[str, str]:
+    """{sequence number: message_id} for the given messages, in one fetch."""
+    out: dict[str, str] = {}
+    if not ids:
+        return out
+    typ, payload = conn.fetch(b",".join(ids), _ID_HEADERS)
+    if typ != "OK" or not payload:
+        return out
+    for item in payload:
+        if not isinstance(item, tuple) or len(item) < 2:
+            continue
+        m = _SEQ_NO.match(item[0] or b"")
+        raw = item[1]
+        if not m or not isinstance(raw, (bytes, bytearray)):
+            continue
+        out[m.group(1).decode()] = message_id(email.message_from_bytes(bytes(raw)))
+    return out
+
+
 def fetch_unseen(
     host: str,
     user: str,
@@ -167,6 +194,7 @@ def fetch_unseen(
     limit: int = 50,
     port: int = 993,
     from_addresses: Iterable[str] = (),
+    already_rejected: Callable[[], set[str]] | None = None,
 ) -> list[dict[str, Any]]:
     """Return up to `limit` unread messages from the given senders, OLDEST first.
 
@@ -196,6 +224,14 @@ def fetch_unseen(
     This is not the security boundary — should_process still decides, on the
     real headers, and IMAP's own FROM matching is a loose substring test not
     worth trusting. It is how the right messages get looked at at all.
+
+    `already_rejected` returns the messages this filter has already turned down,
+    and they are dropped before `limit` is applied. Without it the same jam
+    reappears one level down: the ERP's own address had fifty unread purchase
+    order emails, none of them a register, none of them ever marked read, and
+    they filled the window exactly as the newsletters had. The limit has to
+    apply to mail nobody has judged yet, or it is a limit on progress rather
+    than on work.
     """
     conn = imaplib.IMAP4_SSL(host, port)
     try:
@@ -215,7 +251,23 @@ def fetch_unseen(
         # again — each run looked at the same recent batch and the backlog sat
         # there permanently. A register that arrives while the job is failing
         # is exactly the one that must not be skipped.
-        ids = (data[0] or b"").split()[:limit]
+        ids = (data[0] or b"").split()
+
+        if already_rejected is not None and ids:
+            try:
+                judged = already_rejected()
+            except Exception:
+                # Losing this costs efficiency, not correctness — fall back to
+                # examining everything rather than importing nothing.
+                judged = set()
+            if judged:
+                # A message whose headers could not be read is kept: unknown
+                # means unjudged, and the expensive mistake is the one that
+                # drops a register.
+                mids = _identify(conn, ids)
+                ids = [i for i in ids if mids.get(i.decode()) not in judged]
+
+        ids = ids[:limit]
 
         out: list[dict[str, Any]] = []
         for num in ids:

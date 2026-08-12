@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 from datetime import date, datetime, timezone
@@ -293,7 +294,35 @@ class _Acting:
         self.client = client
 
 
-def _log_mail(acting, mid, sender, subject, filename, status, detail, lines):
+def _filter_key(settings) -> str:
+    """A fingerprint of the settings that decide whether a message is a register.
+
+    Recorded against every rejection, so a message already turned down by THESE
+    settings need not be looked at again — while changing the senders or the
+    subject changes the key, and every previously rejected message gets a fresh
+    hearing. That second half is the point: mail is left unread precisely so a
+    corrected filter can still find it.
+    """
+    senders = ",".join(
+        sorted(s.strip().lower() for s in settings.grn_allowed_senders if s.strip())
+    )
+    subject = " ".join((settings.grn_subject_contains or "").split()).lower()
+    return hashlib.sha256(f"{senders}|{subject}".encode()).hexdigest()[:16]
+
+
+def _rejected_by_this_filter(acting, key: str) -> set[str]:
+    """Every message the current filter has already turned down."""
+    rows = fetch_all(
+        lambda: acting.client.table("grn_mail")
+        .select("message_id")
+        .eq("status", "skipped")
+        .eq("filter_key", key),
+        order_by="message_id",
+    )
+    return {r["message_id"] for r in rows}
+
+
+def _log_mail(acting, mid, sender, subject, filename, status, detail, lines, key=None):
     """Record the attempt. Never raises: a logging failure must not lose an
     import that already succeeded."""
     try:
@@ -314,11 +343,34 @@ def _log_mail(acting, mid, sender, subject, filename, status, detail, lines):
                 # was running fine every five minutes, which is precisely the
                 # question that panel exists to answer.
                 "processed_at": datetime.now(timezone.utc).isoformat(),
+                "filter_key": key,
             },
             on_conflict="message_id",
         ).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        # 20260824 adds filter_key. Until it is applied the column does not
+        # exist, and swallowing that would silently stop recording mail
+        # altogether — losing the don't-import-twice guarantee, which is a far
+        # worse outcome than losing the fingerprint. Retry without it.
+        if "filter_key" not in str(e):
+            return
+        try:
+            acting.client.table("grn_mail").upsert(
+                {
+                    "message_id": mid,
+                    "sender": sender,
+                    "subject": (subject or "")[:500],
+                    "filename": filename,
+                    "status": status,
+                    "detail": detail,
+                    "lines": lines,
+                    "processed_by": acting.id,
+                    "processed_at": datetime.now(timezone.utc).isoformat(),
+                },
+                on_conflict="message_id",
+            ).execute()
+        except Exception:
+            pass
 
 
 @router.post("/fetch-mail")
@@ -353,6 +405,12 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
     if not settings.imap_user or not settings.imap_password:
         raise HTTPException(503, "IMAP_USER and IMAP_PASSWORD are not configured.")
 
+    client = service_client()
+    who = client.auth.get_user()
+    acting = _Acting(getattr(getattr(who, "user", None), "id", None), client)
+
+    key = _filter_key(settings)
+
     try:
         messages = fetch_unseen(
             settings.imap_host,
@@ -362,16 +420,13 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             # Without this the search returns the whole unread backlog and the
             # register never reaches the front of it. See fetch_unseen.
             from_addresses=settings.grn_allowed_senders,
+            already_rejected=lambda: _rejected_by_this_filter(acting, key),
         )
     except Exception as e:
         raise HTTPException(502, f"Could not read the mailbox: {e}")
 
     if not messages:
         return {"checked": 0, "imported": 0, "results": []}
-
-    client = service_client()
-    who = client.auth.get_user()
-    acting = _Acting(getattr(getattr(who, "user", None), "id", None), client)
 
     # Messages already handled. The mailbox read-flag alone is not enough: a
     # person opening the mail would mark it read and the register would then
@@ -415,7 +470,7 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             # is not ours to touch, and leaving the flag alone is what lets a
             # corrected filter find the message on the next run. Re-reading a
             # handful of headers every five minutes costs nothing.
-            _log_mail(acting, mid, frm, subject, None, "skipped", why, 0)
+            _log_mail(acting, mid, frm, subject, None, "skipped", why, 0, key)
             results.append({"message": subject, "status": "skipped", "detail": why})
             continue
 
