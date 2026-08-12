@@ -294,6 +294,15 @@ class _Acting:
         self.client = client
 
 
+# Bump when the code that judges a message changes, not just its settings.
+# A rejection is only worth trusting as final if the thing that made it still
+# behaves the same way; without this, a fix to the filtering logic would never
+# be applied to the messages it was written for, because they are all already
+# marked as judged. Cheap insurance — the cost of a needless bump is one extra
+# pass over mail that gets rejected again.
+_FILTER_VERSION = 2
+
+
 def _filter_key(settings) -> str:
     """A fingerprint of the settings that decide whether a message is a register.
 
@@ -307,7 +316,9 @@ def _filter_key(settings) -> str:
         sorted(s.strip().lower() for s in settings.grn_allowed_senders if s.strip())
     )
     subject = " ".join((settings.grn_subject_contains or "").split()).lower()
-    return hashlib.sha256(f"{senders}|{subject}".encode()).hexdigest()[:16]
+    return hashlib.sha256(
+        f"v{_FILTER_VERSION}|{senders}|{subject}".encode()
+    ).hexdigest()[:16]
 
 
 def _rejected_by_this_filter(acting, key: str) -> set[str]:
@@ -470,6 +481,19 @@ def fetch_grn_from_mail(x_cron_secret: str = Header(default="")):
             # is not ours to touch, and leaving the flag alone is what lets a
             # corrected filter find the message on the next run. Re-reading a
             # handful of headers every five minutes costs nothing.
+            if not subject:
+                # A message from the ERP with no readable subject is the open
+                # question: either it genuinely has none — in which case it is
+                # not a register and the rejection is right — or the header is
+                # there and is not reaching us, in which case the register is
+                # being turned away for a reason that has nothing to do with
+                # it. Message-ID and From parse on these, so the headers are
+                # arriving; listing what came with them settles which it is,
+                # and costs one line in a table nobody reads until it matters.
+                why = (
+                    f"{why} — no usable Subject. Headers present: "
+                    f"{', '.join(sorted(set(msg.keys())))}"[:480]
+                )
             _log_mail(acting, mid, frm, subject, None, "skipped", why, 0, key)
             results.append({"message": subject, "status": "skipped", "detail": why})
             continue
