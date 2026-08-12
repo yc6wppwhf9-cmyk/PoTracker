@@ -78,51 +78,80 @@ async function dataFor(
       };
     }
     case "po_team": {
-      const [drafts, uploaded] = await Promise.all([
-        db.from("po").select("*", head).eq("status", "draft"),
+      // 'sent', not 'draft'.
+      //
+      // A draft is private to the buyer: not handed over, nobody notified,
+      // and abandoning it costs nothing. The PO team's queue begins when the
+      // buyer presses send, which is what their own screens filter on
+      // (status <> 'draft'). Counting drafts here meant the dashboard read
+      // 0 and 0 while the PO Team page listed real work — the numbers were
+      // measuring a status this role never acts on.
+      const [awaiting, uploaded] = await Promise.all([
+        db.from("po").select("*", head).eq("status", "sent"),
         db.from("po").select("*", head).eq("status", "uploaded"),
       ]);
       return {
         tiles: [
-          { label: "Awaiting document", value: drafts.count ?? 0, hint: "PO drafts" },
+          {
+            label: "Awaiting document",
+            value: awaiting.count ?? 0,
+            hint: "sent by buyers",
+          },
           { label: "Documents attached", value: uploaded.count ?? 0, hint: "POs" },
         ],
         actions: [
           {
             href: "/procurement/po-team",
             label: "Attach PO documents",
-            desc: "Upload finalised PO files against draft orders.",
+            desc: "Upload the signed PO against orders buyers have sent you.",
           },
         ],
       };
     }
     case "approver": {
-      const [pending, total] = await Promise.all([
+      // Approval is per purchase order, not per sheet. This counted sheets
+      // "ready to review", which is the flow as it was before — a sheet
+      // becomes many POs to many suppliers, and approving "the sheet" says
+      // nothing about which order was agreed to.
+      const [pendingPos, sheets] = await Promise.all([
+        db
+          .from("po")
+          .select("*", head)
+          .eq("approval_status", "pending")
+          .neq("status", "draft"),
         db.from("rm_sheet").select("*", head).in("status", ["assigned", "reconciled"]),
-        db.from("rm_sheet").select("*", head),
       ]);
       return {
         tiles: [
-          { label: "Ready to review", value: pending.count ?? 0, hint: "sheets" },
-          { label: "Total sheets", value: total.count ?? 0 },
+          { label: "POs to approve", value: pendingPos.count ?? 0, hint: "orders" },
+          { label: "Sheets to review", value: sheets.count ?? 0, hint: "MR sheets" },
         ],
         actions: [
           {
-            href: "/procurement/approver",
-            label: "Review Approvals",
-            desc: "Verify purchases and send to the Managing Director.",
+            href: "/procurement/po-approvals",
+            label: "Approve purchase orders",
+            // The approver is final now; only escalations reach the MD.
+            desc: "Decide each order, or escalate it to the buyer who raised it.",
           },
         ],
       };
     }
     case "md": {
-      const [pending, total] = await Promise.all([
-        db.from("approval").select("*", head).eq("md_decision", "pending"),
+      // The MD sees escalations, not every approval package. This counted rows
+      // in `approval`, which belongs to the sheet-level flow the approver no
+      // longer uses — so it would have read 0 forever while escalations piled
+      // up unseen.
+      const [escalated, total] = await Promise.all([
+        db
+          .from("escalation")
+          .select("*", head)
+          .not("escalated_to_md_at", "is", null)
+          .neq("status", "resolved"),
         db.from("rm_sheet").select("*", head),
       ]);
       return {
         tiles: [
-          { label: "Pending approval", value: pending.count ?? 0, hint: "requests" },
+          { label: "Escalated to you", value: escalated.count ?? 0, hint: "unresolved" },
           { label: "Total sheets", value: total.count ?? 0 },
         ],
         actions: [
