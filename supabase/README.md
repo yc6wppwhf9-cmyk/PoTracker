@@ -1,25 +1,45 @@
-# Database schema — NOT YET IN VERSION CONTROL
+# Database schema — captured into version control
 
-⚠️ **The schema for this app currently exists only inside the hosted Supabase
-project.** Nothing in this repository can recreate it.
+The full schema is now in Git as
+[`migrations/20260801000000_base_schema.sql`](migrations/20260801000000_base_schema.sql),
+read out of the live Supabase project (ref `zpuhlgjuoqrxcakeyhbg`) on
+2026-08-12. The repository can recreate the database on its own; it no longer
+lives only in the hosted project.
 
-**Fix in five minutes: see [CAPTURE.md](CAPTURE.md).** It needs a Supabase
-login, so it has to be run by someone with access to the account.
-
-That includes:
+That baseline reproduces the complete current state:
 
 - the tables (`item_master`, `uom_conversion`, `rm_sheet`, `rm_requirement`,
-  `po`, `po_line`, `approval`, `escalation`, `audit_log`, `profiles`);
+  `po`, `po_line`, `approval`, `escalation`, `audit_log`, `profiles`, `grn`,
+  `grn_mail`) with their indexes, constraints and column comments;
 - **every RLS policy** — which is the app's actual access-control boundary, not
-  the `requireRole()` / `require_roles()` checks in application code;
+  the `requireRole()` / `require_roles()` checks in application code — plus the
+  function EXECUTE grants that revoke anonymous access;
 - the `reconciliation` view, which holds the core business logic
   (`expected_max = ceil(required/moq)*moq`, the tolerance band, the 5-way
-  classification, and the `moq_forced` flag);
+  classification, and the `moq_forced` flag), and the `grn_ours` and
+  `po_delivery` views, all `security_invoker`;
 - the `add_working_hours()`, `has_role()`, `my_role()`, `is_staff()`,
-  `buyer_on_sheet()`, and `can_see_po()` functions;
+  `buyer_on_sheet()`, `can_see_po()`, `emails_for_role()`,
+  `buyers_for_assignment()`, `assign_buyers()`, `assigned_buyer_counts()`,
+  `replace_grn_rows()`, `replace_rm_requirements()`, `handle_new_user()` and
+  `prevent_role_escalation()` functions;
 - the `app_role` enum;
+- the `on_auth_user_created` and `profiles_no_role_escalation` triggers;
 - the pg_cron job that auto-escalates overdue escalations to the MD;
 - the Storage buckets (`rm-sheets`, `po-docs`) and their policies.
+
+The baseline sorts before the dated incremental migrations and is fully
+idempotent (`create ... if not exists`, `create or replace`,
+`drop policy if exists`), so replaying it against a fresh database creates
+everything and the later increments then re-run harmlessly on the finished
+schema; replaying it against the live database changes nothing.
+
+## Keep it captured
+
+Make schema changes as new migrations, not by hand in the dashboard — a policy
+edited in the SQL editor and not written down puts the repository back out of
+step with the live database. [`CAPTURE.md`](CAPTURE.md) explains how the
+baseline was pulled and how to refresh it.
 
 `web/src/lib/database.types.ts` is a *generated shadow* of this schema, not a
 source of truth — it cannot recreate anything. It is also wrong in at least one
