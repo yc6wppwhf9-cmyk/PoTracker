@@ -14,7 +14,7 @@ from urllib.parse import quote
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.ratelimit import limit_exports
@@ -294,27 +294,75 @@ def _ordered_and_received(user: CurrentUser) -> tuple[dict, dict, dict]:
     return ordered, received, po_by_number
 
 
+def _parse_date(value: str | None, field: str) -> datetime.date | None:
+    """A YYYY-MM-DD query param as a date, or a 400 that names the field.
+
+    Bad input from a form field is the caller's mistake, not a server error, so
+    it comes back as a 400 with the field named rather than a 500 buried in the
+    generic date parser's message.
+    """
+    if not value:
+        return None
+    try:
+        return datetime.date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(
+            400, f"'{field}' must be a date in YYYY-MM-DD form, not {value!r}."
+        )
+
+
 @router.get("/grn-register.xlsx")
-def export_grn_register(user: CurrentUser = Depends(get_current_user)):
+def export_grn_register(
+    user: CurrentUser = Depends(get_current_user),
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
+):
     """Every receipt, with what it was ordered against.
 
     A receipt on its own is not reviewable — 3,085 arrived is only meaningful
     beside the order — so the comparison travels with the row rather than being
     something the recipient has to reconstruct with a lookup.
+
+    ``from`` and ``to`` (inclusive, YYYY-MM-DD) narrow the download to receipts
+    whose GRC date falls in the range — the register runs to thousands of lines,
+    and most of the time only one week's or month's deliveries are wanted.
+    Either bound may be given alone; omit both for the whole register. Receipts
+    with no GRC date are outside any range, so a bounded export leaves them out.
     """
     require_roles(user, "approver", "md", "purchase_head", "po_team")
     limit_exports(user.id)
 
-    rows = fetch_all(
-        lambda: user.client.table("grn_ours").select(
+    start = _parse_date(date_from, "from")
+    end = _parse_date(date_to, "to")
+    if start and end and start > end:
+        raise HTTPException(400, "'from' is after 'to' — the range is empty.")
+
+    def _query():
+        q = user.client.table("grn_ours").select(
             "grc_no, grc_date, po_number, po_date, item_code, item_name, lot, "
             "qty, supplier, stock_point, department, doc_no, doc_date, "
             "landed_cost, remarks"
-        ),
-        order_by="id",
-    )
+        )
+        if start:
+            q = q.gte("grc_date", start.isoformat())
+        if end:
+            q = q.lte("grc_date", end.isoformat())
+        return q
+
+    rows = fetch_all(_query, order_by="id")
     if not rows:
-        raise HTTPException(422, "Nothing to export — no receipts have been imported.")
+        span = (
+            f" between {start.isoformat()} and {end.isoformat()}"
+            if start and end
+            else f" on or after {start.isoformat()}"
+            if start
+            else f" on or before {end.isoformat()}"
+            if end
+            else ""
+        )
+        raise HTTPException(
+            422, f"Nothing to export — no receipts have been imported{span}."
+        )
 
     ordered, received, _ = _ordered_and_received(user)
 
@@ -363,8 +411,17 @@ def export_grn_register(user: CurrentUser = Depends(get_current_user)):
     wb.save(buf)
     buf.seek(0)
 
-    today = datetime.date.today().isoformat()
-    filename = f"grn-register-{today}.xlsx"
+    # The filename carries the range so a folder of these stays self-describing
+    # — "which weeks do I already have?" is answerable without opening them.
+    if start and end:
+        stamp = f"{start.isoformat()}_to_{end.isoformat()}"
+    elif start:
+        stamp = f"from-{start.isoformat()}"
+    elif end:
+        stamp = f"to-{end.isoformat()}"
+    else:
+        stamp = datetime.date.today().isoformat()
+    filename = f"grn-register-{stamp}.xlsx"
     return StreamingResponse(
         buf,
         media_type=XLSX_MEDIA,

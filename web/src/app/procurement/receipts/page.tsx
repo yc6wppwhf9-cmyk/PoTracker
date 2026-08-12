@@ -3,7 +3,7 @@ import { AppShell } from "@/components/app-shell";
 import { getReceipts } from "@/lib/receipts";
 import { getOverReceipts } from "@/lib/over-receipts";
 import { ReceiptsTable } from "@/components/recon/receipts-table";
-import { DownloadButton } from "@/app/procurement/approver/download-button";
+import { RegisterDownload } from "./register-download";
 import { FetchStatus } from "./fetch-status";
 import { ManualImport } from "./manual-import";
 
@@ -45,11 +45,7 @@ export default async function ReceiptsPage() {
             automatically from the register emailed by the ERP.
           </p>
         </div>
-        <DownloadButton
-          path="/exports/grn-register.xlsx"
-          filename="grn-register.xlsx"
-          label="Download register"
-        />
+        <RegisterDownload />
       </div>
 
       <FetchStatus />
