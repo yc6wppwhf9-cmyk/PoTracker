@@ -103,6 +103,14 @@ function IconReceipts({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
+function IconGrnDashboard({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6m4 6V5m4 14v-9M4 19h16" />
+    </svg>
+  );
+}
+
 function IconMd({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -150,6 +158,7 @@ const NAV: NavItem[] = [
   { href: "/procurement/po-approvals", label: "PO Approvals", roles: ["approver"], ready: true, icon: IconPoApprovals },
   { href: "/procurement/pending-pos", label: "Pending POs", roles: ["approver", "purchase_head", "md"], ready: true, icon: IconPendingPos },
   { href: "/procurement/receipts", label: "GRN Register", roles: ["approver", "purchase_head", "md", "po_team"], ready: true, icon: IconReceipts },
+  { href: "/procurement/grn-dashboard", label: "GRN Dashboard", roles: ["approver", "md"], ready: true, icon: IconGrnDashboard },
   { href: "/procurement/md", label: "MD Dashboard", roles: ["md"], ready: true, icon: IconMd },
   { href: "/admin/item-master", label: "Item Master", roles: ["admin"], ready: true, icon: IconItemMaster },
   { href: "/admin/users", label: "Users", roles: ["admin"], ready: true, icon: IconUsers },
