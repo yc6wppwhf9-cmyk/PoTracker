@@ -57,8 +57,10 @@ export async function getGrnKpis(): Promise<GrnKpis> {
       .range(from, to)
   );
 
+  // Rolling 7-day window inclusive of today: today − 6 spans exactly 7 calendar
+  // days. today − 7 with a >= test would have counted 8.
   const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   const cutoff = sevenDaysAgo.toISOString().slice(0, 10);
 
   const pos = new Set<string>();

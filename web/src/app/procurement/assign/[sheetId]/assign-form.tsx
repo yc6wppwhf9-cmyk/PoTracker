@@ -145,8 +145,12 @@ export function AssignForm({
     }
   }, [viewMode, groups, categorySelection, invGroups, invSelection]);
 
+  // Mixed groups count here too, or the "Send to buyers" button stays disabled
+  // on a sheet whose only routed category is a per-item split — the tally would
+  // read "assigned" while the notify action refused to run. notifyBuyersAction
+  // reads the persisted per-line assignments, so those buyers are mailable.
   const savedAssignedCount = groups.filter(
-    (g) => !g.unmatched && g.currentBuyerId
+    (g) => !g.unmatched && (g.currentBuyerId || g.mixed)
   ).length;
 
   return (
