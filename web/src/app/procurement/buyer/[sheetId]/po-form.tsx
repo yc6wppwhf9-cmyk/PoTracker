@@ -75,6 +75,7 @@ export function PoForm({
 }) {
   const router = useRouter();
   const [hideDone, setHideDone] = useState(true);
+  const [search, setSearch] = useState("");
 
   const [allocs, setAllocs] = useState<Alloc[]>(() =>
     items.map((it) => ({
@@ -233,9 +234,35 @@ export function PoForm({
   // vanishing without explanation is its own confusion — but it is hidden by
   // default so a sheet of thousands shows only the work remaining.
   const done = items.filter((it) => outstanding(it) <= 0).length;
-  const visibleItems = hideDone
-    ? items.filter((it) => outstanding(it) > 0)
-    : items;
+
+  // Search across the columns that identify a line — name, code, category and
+  // lot — so a buyer working a long sheet can jump to one item without
+  // scrolling the whole register.
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (it: AssignedItem) =>
+    q === "" ||
+    it.name.toLowerCase().includes(q) ||
+    it.item_code.toLowerCase().includes(q) ||
+    it.category.toLowerCase().includes(q) ||
+    (it.lot ?? "").toLowerCase().includes(q);
+
+  const visibleItems = items.filter(
+    (it) => (!hideDone || outstanding(it) > 0) && matchesSearch(it)
+  );
+
+  // Select-all acts on exactly what is on screen — the rows left after the
+  // search and hide-done filters — so it never silently ticks a line the buyer
+  // cannot see. Ticking every allocation of each visible line, splits included.
+  const visibleKeys = visibleItems.map(keyOf);
+  const allVisibleSelected =
+    visibleItems.length > 0 &&
+    visibleKeys.every((k) => (byItem.get(k) ?? []).some((a) => a.include));
+  function setAllVisibleIncluded(include: boolean) {
+    const keyset = new Set(visibleKeys);
+    setAllocs((prev) =>
+      prev.map((a) => (keyset.has(a.itemKey) ? { ...a, include } : a))
+    );
+  }
 
   return (
     <>
@@ -243,17 +270,59 @@ export function PoForm({
         <input type="hidden" name="sheet_id" value={sheetId} />
         <input type="hidden" name="lines" value={JSON.stringify(payload)} />
 
-        {done > 0 && (
-          <label className="mb-2 flex items-center gap-2 text-xs text-neutral-500">
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="relative">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search item, code, category or lot…"
+              className="w-72 max-w-full rounded-md border border-black/10 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/15 dark:bg-neutral-950"
+            />
+            <svg
+              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"
+              />
+            </svg>
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
             <input
               type="checkbox"
-              checked={hideDone}
-              onChange={(e) => setHideDone(e.target.checked)}
+              checked={allVisibleSelected}
+              onChange={(e) => setAllVisibleIncluded(e.target.checked)}
+              disabled={visibleItems.length === 0}
               className="size-4 accent-indigo-600"
             />
-            Hide {done} line(s) already fully ordered
+            Select all{visibleItems.length > 0 ? ` (${visibleItems.length})` : ""}
           </label>
-        )}
+
+          {done > 0 && (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-500">
+              <input
+                type="checkbox"
+                checked={hideDone}
+                onChange={(e) => setHideDone(e.target.checked)}
+                className="size-4 accent-indigo-600"
+              />
+              Hide {done} line(s) already fully ordered
+            </label>
+          )}
+
+          {q !== "" && (
+            <span className="text-xs text-neutral-400">
+              {visibleItems.length} match(es)
+            </span>
+          )}
+        </div>
 
         {/* The row is wider than most screens, so the two columns that say
             WHICH material this is are pinned; scrolled right without them a
@@ -466,6 +535,18 @@ export function PoForm({
                   );
                 });
               })}
+              {visibleItems.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={13}
+                    className="px-4 py-8 text-center text-sm text-neutral-500"
+                  >
+                    {q !== ""
+                      ? "No lines match your search."
+                      : "No lines left to order on this sheet."}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
