@@ -114,16 +114,34 @@ export function AssignForm({
     );
   }, [invGroups, searchQuery]);
 
-  const assignedCatCount = groups.filter((g) => !g.unmatched && categorySelection[g.key]).length;
+  // A mixed group counts as assigned — its lines already have buyers, just not
+  // a single one — so the tally doesn't read it as outstanding work.
+  const assignedCatCount = groups.filter(
+    (g) => !g.unmatched && (categorySelection[g.key] || g.mixed)
+  ).length;
   const totalAssignableCat = groups.filter((g) => !g.unmatched).length;
 
-  const assignedInvCount = invGroups.filter((g) => invSelection[g.itemCode]).length;
+  const assignedInvCount = invGroups.filter(
+    (g) => invSelection[g.itemCode] || g.mixed
+  ).length;
 
   const payloadAssignments = useMemo(() => {
     if (viewMode === "category") {
-      return groups.map((g) => ({ category: g.key, buyerId: categorySelection[g.key] ?? "" }));
+      // A mixed category is split across buyers — no single buyer owns it, so
+      // its dropdown initialises blank. Sending a blank buyerId tells the RPC
+      // to unassign every line in the category, which would wipe that split
+      // (this is exactly how a per-item Runner split got lost). Only send a
+      // mixed category once someone deliberately picks a buyer for the whole
+      // of it; leave it out otherwise so its per-item assignments stand.
+      return groups
+        .filter((g) => !(g.mixed && (categorySelection[g.key] ?? "") === ""))
+        .map((g) => ({ category: g.key, buyerId: categorySelection[g.key] ?? "" }));
     } else {
-      return invGroups.map((g) => ({ itemCode: g.itemCode, buyerId: invSelection[g.itemCode] ?? "" }));
+      // Same guard for the INV view: an item code split across buyers stays
+      // untouched until one is chosen for it.
+      return invGroups
+        .filter((g) => !(g.mixed && (invSelection[g.itemCode] ?? "") === ""))
+        .map((g) => ({ itemCode: g.itemCode, buyerId: invSelection[g.itemCode] ?? "" }));
     }
   }, [viewMode, groups, categorySelection, invGroups, invSelection]);
 
@@ -223,7 +241,11 @@ export function AssignForm({
                       className="w-56 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-white/15 dark:bg-neutral-950"
                     >
                       <option value="">
-                        {g.unmatched ? "— (resolve code first)" : "— unassigned —"}
+                        {g.unmatched
+                          ? "— (resolve code first)"
+                          : g.mixed
+                            ? "— keep split (per item) —"
+                            : "— unassigned —"}
                       </option>
                       {buyers.map((b) => (
                         <option key={b.id} value={b.id}>
@@ -279,7 +301,9 @@ export function AssignForm({
                       disabled={pending}
                       className="w-56 rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-white/15 dark:bg-neutral-950"
                     >
-                      <option value="">— unassigned —</option>
+                      <option value="">
+                        {g.mixed ? "— keep split (per item) —" : "— unassigned —"}
+                      </option>
                       {buyers.map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}
