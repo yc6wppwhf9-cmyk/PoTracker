@@ -98,6 +98,24 @@ export async function resolveEscalation(
   const id = String(formData.get("escalation_id") ?? "");
   if (!id) return { error: "Missing escalation.", ok: false };
 
+  const { data: rows, error: readErr } = await supabase
+    .from("escalation")
+    .select("assigned_buyer, raised_by")
+    .eq("id", id)
+    .limit(1);
+  if (readErr) return { error: readErr.message, ok: false };
+  const escalation = rows?.[0];
+  if (!escalation) return { error: "Escalation not found.", ok: false };
+
+  // A buyer or approver can only resolve their own escalation — otherwise
+  // anyone holding either role could clear someone else's outstanding SLA by
+  // ID. Purchase head and MD sit above both and resolve anyone's, which is
+  // the point of the MD's SLA-breach queue in escalations-view.tsx.
+  if (me.role === "buyer" && escalation.assigned_buyer !== me.userId)
+    return { error: "This escalation is not assigned to you.", ok: false };
+  if (me.role === "approver" && escalation.raised_by !== me.userId)
+    return { error: "This escalation was not raised by you.", ok: false };
+
   const { error } = await supabase
     .from("escalation")
     .update({

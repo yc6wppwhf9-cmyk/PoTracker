@@ -22,17 +22,33 @@ export async function mdDecision(
 
   const { data: rows } = await supabase
     .from("approval")
-    .select("id, rm_sheet_id")
+    .select("id, rm_sheet_id, md_decision")
     .eq("id", approvalId)
     .limit(1);
   const approval = rows?.[0];
   if (!approval) return { error: "Approval not found.", ok: false };
+  if (approval.md_decision)
+    return {
+      error: `This sheet was already ${approval.md_decision} — a decision cannot be changed once made.`,
+      ok: false,
+    };
 
-  const { error } = await supabase
+  // Constrained on md_decision still being unset, same as approvePo's
+  // approval_status check: without it, two submits (a double-click, or a
+  // second tab) race past the read above and the second one silently
+  // overwrites the first decision instead of being refused.
+  const { data: updated, error } = await supabase
     .from("approval")
     .update({ md_id: me.userId, md_decision: decision })
-    .eq("id", approvalId);
+    .eq("id", approvalId)
+    .is("md_decision", null)
+    .select("id");
   if (error) return { error: error.message, ok: false };
+  if ((updated?.length ?? 0) === 0)
+    return {
+      error: "This sheet was already decided just now.",
+      ok: false,
+    };
 
   await supabase
     .from("rm_sheet")

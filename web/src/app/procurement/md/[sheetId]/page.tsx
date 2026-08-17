@@ -106,7 +106,7 @@ export default async function MdSheetDetailPage({
         </div>
 
         {/* Decision Actions */}
-        {approval ? (
+        {approval && !approval.md_decision ? (
           <div className="mt-6 border-t border-black/[0.06] pt-6 dark:border-white/[0.06]">
             <h3 className="text-sm font-semibold tracking-wide uppercase text-neutral-500">
               Managing Director Action
@@ -135,6 +135,10 @@ export default async function MdSheetDetailPage({
               </form>
             </div>
           </div>
+        ) : approval ? (
+          <p className="mt-4 text-xs text-neutral-400">
+            This sheet's decision is final and cannot be changed.
+          </p>
         ) : (
           <p className="mt-4 text-xs text-neutral-400">
             This sheet has not been formally submitted by an approver yet.
