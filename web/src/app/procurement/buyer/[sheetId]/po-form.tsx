@@ -10,6 +10,10 @@ export type { AssignedItem };
 
 const initial: CreatePoState = { error: null, poId: null };
 
+// Matches recon-tabs.tsx and consolidated-view.tsx: a buyer holding a whole
+// sheet's backlog otherwise gets thousands of rows in the DOM at once.
+const PAGE_SIZE = 100;
+
 const keyOf = (it: { item_code: string; lot: string | null; location: string | null }) =>
   `${it.item_code}__${it.lot ?? ""}__${it.location ?? ""}`;
 
@@ -49,6 +53,7 @@ export function PoForm({
   const router = useRouter();
   const [hideDone, setHideDone] = useState(true);
   const [search, setSearch] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
 
   const [allocs, setAllocs] = useState<Alloc[]>(() =>
     items.map((it) => ({
@@ -223,6 +228,14 @@ export function PoForm({
     (it) => (!hideDone || outstanding(it) > 0) && matchesSearch(it)
   );
 
+  // Only a page of visibleItems is rendered — "select all" and the counts
+  // above still act on the full filtered set, only the table rows are
+  // clamped. Selection state lives on `allocs`, keyed by item, so paging
+  // never loses a tick made on another page.
+  const pageCount = Math.max(1, Math.ceil(visibleItems.length / PAGE_SIZE));
+  const page = Math.min(pageIndex, pageCount - 1);
+  const pageItems = visibleItems.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
   // Select-all acts on exactly what is on screen — the rows left after the
   // search and hide-done filters — so it never silently ticks a line the buyer
   // cannot see. Ticking every allocation of each visible line, splits included.
@@ -248,7 +261,10 @@ export function PoForm({
             <input
               type="search"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPageIndex(0);
+              }}
               placeholder="Search item, code, category or lot…"
               className="w-72 max-w-full rounded-md border border-black/10 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/15 dark:bg-neutral-950"
             />
@@ -283,7 +299,10 @@ export function PoForm({
               <input
                 type="checkbox"
                 checked={hideDone}
-                onChange={(e) => setHideDone(e.target.checked)}
+                onChange={(e) => {
+                  setHideDone(e.target.checked);
+                  setPageIndex(0);
+                }}
                 className="size-4 accent-indigo-600"
               />
               Hide {done} line(s) already fully ordered
@@ -316,7 +335,7 @@ export function PoForm({
               </tr>
             </thead>
             <tbody>
-              {visibleItems.map((it) => {
+              {pageItems.map((it) => {
                 const k = keyOf(it);
                 const group = byItem.get(k) ?? [];
                 const allocated = allocatedFor(k);
@@ -522,6 +541,41 @@ export function PoForm({
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-500">
+          <span className="tabular-nums">
+            {visibleItems.length === 0
+              ? "No lines"
+              : `Showing ${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min(
+                  (page + 1) * PAGE_SIZE,
+                  visibleItems.length
+                ).toLocaleString()} of ${visibleItems.length.toLocaleString()}`}
+          </span>
+
+          {pageCount > 1 && (
+            <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
+                disabled={page === 0}
+                className="rounded-md border border-black/10 px-2 py-1 font-medium disabled:opacity-40 hover:bg-neutral-50 dark:border-white/15 dark:hover:bg-neutral-800"
+              >
+                Previous
+              </button>
+              <span className="tabular-nums">
+                Page {page + 1} of {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
+                disabled={page >= pageCount - 1}
+                className="rounded-md border border-black/10 px-2 py-1 font-medium disabled:opacity-40 hover:bg-neutral-50 dark:border-white/15 dark:hover:bg-neutral-800"
+              >
+                Next
+              </button>
+            </span>
+          )}
         </div>
       </form>
 
