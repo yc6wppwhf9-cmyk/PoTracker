@@ -75,23 +75,6 @@ export default async function BuyerSheetPage({
       .range(from, to)
   );
 
-  // What is already on a PO for this sheet, per (item_code, lot, plant).
-  //
-  // Without this the form re-offers the full requirement on every visit, and a
-  // buyer topping up half a lot orders the whole thing again. Drafts count
-  // here even though reconciliation excludes them: an unsent draft commits
-  // nobody downstream, but it is still material this buyer has allocated and
-  // must not allocate twice.
-  const coveredQuery = fetchAll((from, to) =>
-    supabase
-      .from("reconciliation")
-      .select("item_code, lot, location, ordered, drafted")
-      .eq("rm_sheet_id", sheetId)
-      .order("item_code")
-      .order("lot")
-      .order("location")
-      .range(from, to)
-  );
   // Existing POs this buyer created for the sheet, with their line items.
   const posQuery = supabase
     .from("po")
@@ -102,19 +85,48 @@ export default async function BuyerSheetPage({
     .eq("created_by", profile.userId)
     .order("created_at", { ascending: false });
 
-  // All four reads at once. None of them needs another's answer, and issued
-  // one after the other they were four sequential round trips to the database
-  // — which is most of what this page cost before its region was fixed.
-  const [sheetRes, lines, covered, posRes] = await Promise.all([
+  // Three reads at once. None of them needs another's answer, and issued one
+  // after the other they were sequential round trips to the database — which
+  // is most of what this page cost before its region was fixed.
+  const [sheetRes, lines, posRes] = await Promise.all([
     sheetQuery,
     linesQuery,
-    coveredQuery,
     posQuery,
   ]);
 
   const sheet = sheetRes.data?.[0];
   if (!sheet) notFound();
   const pos = posRes.data;
+
+  // What is already on a PO for this sheet, per (item_code, lot, plant).
+  //
+  // Without this the form re-offers the full requirement on every visit, and a
+  // buyer topping up half a lot orders the whole thing again. Drafts count
+  // here even though reconciliation excludes them: an unsent draft commits
+  // nobody downstream, but it is still material this buyer has allocated and
+  // must not allocate twice.
+  //
+  // Scoped to this buyer's own item codes, not the whole sheet. A sheet can
+  // carry thousands of reconciliation rows across every buyer on it; a buyer
+  // only ever needs the slice that covers their own assigned lines, and
+  // fetching the rest was paging through rows this page never uses — on a
+  // large sheet, enough round trips to time the page out. Sequenced after
+  // linesQuery (it needs the item codes), rather than joined into the
+  // Promise.all above.
+  const itemCodes = [...new Set(lines.map((l) => l.item_code).filter(Boolean))] as string[];
+  const covered = itemCodes.length
+    ? await fetchAll((from, to) =>
+        supabase
+          .from("reconciliation")
+          .select("item_code, lot, location, ordered, drafted")
+          .eq("rm_sheet_id", sheetId)
+          .in("item_code", itemCodes)
+          .order("item_code")
+          .order("lot")
+          .order("location")
+          .range(from, to)
+      )
+    : [];
 
   const coveredBy = new Map<string, { ordered: number; drafted: number }>();
   for (const c of covered) {

@@ -3,16 +3,25 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { EscalationsView } from "@/components/escalations-view";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 
 export default async function BuyerHome() {
   const profile = await requireRole("buyer");
   const supabase = await createClient();
 
   // Sheets where this buyer has assigned lines.
-  const { data: mine } = await supabase
-    .from("rm_requirement")
-    .select("rm_sheet_id, rm_sheet(style_ref, status, created_at)")
-    .eq("assigned_buyer", profile.userId);
+  // Paged: a truncated read here does not just undercount one sheet, it can
+  // drop a whole sheet from the list — a buyer with more than 1000 assigned
+  // lines across several sheets would see only however many of them fit in
+  // the first thousand rows returned, silently.
+  const mine = await fetchAll((from, to) =>
+    supabase
+      .from("rm_requirement")
+      .select("rm_sheet_id, rm_sheet(style_ref, status, created_at)")
+      .eq("assigned_buyer", profile.userId)
+      .order("id")
+      .range(from, to)
+  );
 
   // Collapse to distinct sheets with a line count.
   const bySheet = new Map<
