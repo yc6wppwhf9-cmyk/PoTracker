@@ -11,6 +11,7 @@ export type AssignedItem = {
   location: string | null;
   name: string;
   category: string;
+  department: string;
   required_qty: number;
   /** Already on a PO that has been sent. */
   ordered_qty: number;

@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
-import { PoForm, type AssignedItem } from "./po-form";
+import { PoForm, outstanding, type AssignedItem } from "./po-form";
 import { SendPoBtn, LineDeliveryFields } from "./send-po-btn";
 import { BulkSendProvider, SelectPo } from "./bulk-send";
 import { shortSite } from "@/lib/sites";
@@ -67,7 +67,7 @@ export default async function BuyerSheetPage({
   const linesQuery = fetchAll((from, to) =>
     supabase
       .from("rm_requirement")
-      .select("item_code, lot, location, required_qty, item_master(name, category)")
+      .select("item_code, lot, location, required_qty, department, item_master(name, category)")
       .eq("rm_sheet_id", sheetId)
       .eq("assigned_buyer", profile.userId)
       .not("item_code", "is", null)
@@ -143,6 +143,7 @@ export default async function BuyerSheetPage({
         location,
         name: im?.name ?? code,
         category: im?.category ?? "—",
+        department: (l.department as string | null) ?? "—",
         required_qty: 0,
         ordered_qty: coveredBy.get(key)?.ordered ?? 0,
         drafted_qty: coveredBy.get(key)?.drafted ?? 0,
@@ -159,6 +160,57 @@ export default async function BuyerSheetPage({
   );
   items.forEach((i) => (i.required_qty = Math.round(i.required_qty * 100) / 100));
 
+  // Consolidated totals across this buyer's lines on the sheet — what still
+  // needs buying, rolled up two ways. "To buy" is outstanding(), the same
+  // figure the form itself pre-fills, so this matches what raising POs from
+  // the table below will actually order rather than the original requirement.
+  type DeptRow = { key: string; required: number; toBuy: number; lines: number };
+  type ItemRow = {
+    key: string;
+    name: string;
+    category: string;
+    required: number;
+    toBuy: number;
+    lines: number;
+  };
+  const byDept = new Map<string, DeptRow>();
+  const byItemCode = new Map<string, ItemRow>();
+  for (const it of items) {
+    const toBuy = outstanding(it);
+
+    const d = byDept.get(it.department) ?? {
+      key: it.department,
+      required: 0,
+      toBuy: 0,
+      lines: 0,
+    };
+    d.required += it.required_qty;
+    d.toBuy += toBuy;
+    d.lines += 1;
+    byDept.set(it.department, d);
+
+    const i = byItemCode.get(it.item_code) ?? {
+      key: it.item_code,
+      name: it.name,
+      category: it.category,
+      required: 0,
+      toBuy: 0,
+      lines: 0,
+    };
+    i.required += it.required_qty;
+    i.toBuy += toBuy;
+    i.lines += 1;
+    byItemCode.set(it.item_code, i);
+  }
+  const deptRows = [...byDept.values()].sort(
+    (a, b) => b.toBuy - a.toBuy || a.key.localeCompare(b.key)
+  );
+  const itemRows = [...byItemCode.values()].sort(
+    (a, b) => b.toBuy - a.toBuy || a.name.localeCompare(b.name)
+  );
+  const fmt = (n: number) =>
+    n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
   return (
     <AppShell profile={profile}>
       <Link
@@ -174,6 +226,103 @@ export default async function BuyerSheetPage({
         {items.length} item(s) assigned to you. Select the items you are
         ordering, then record the supplier and rate for each.
       </p>
+
+      {items.length > 0 && (
+        <details className="group mt-6 rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+            <span className="group-open:hidden">▸</span>
+            <span className="hidden group-open:inline">▾</span> Consolidated
+            view — by department and by item
+          </summary>
+          <div className="grid grid-cols-1 gap-4 border-t border-black/5 p-4 dark:border-white/5 md:grid-cols-2">
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                By department
+              </h3>
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
+                  <tr>
+                    <th className="border-b border-black/10 px-2 py-1.5 font-medium dark:border-white/10">
+                      Department
+                    </th>
+                    <th className="border-b border-black/10 px-2 py-1.5 text-right font-medium dark:border-white/10">
+                      Lines
+                    </th>
+                    <th className="border-b border-black/10 px-2 py-1.5 text-right font-medium dark:border-white/10">
+                      Required
+                    </th>
+                    <th className="border-b border-black/10 px-2 py-1.5 text-right font-medium dark:border-white/10">
+                      To buy
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptRows.map((d) => (
+                    <tr key={d.key} className="border-b border-black/5 last:border-0 dark:border-white/5">
+                      <td className="px-2 py-1.5">{d.key}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-neutral-500">
+                        {d.lines}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-neutral-500">
+                        {fmt(d.required)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium">
+                        {fmt(d.toBuy)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                By item
+              </h3>
+              <div className="max-h-80 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white text-left text-xs uppercase tracking-wide text-neutral-500 dark:bg-neutral-900">
+                    <tr>
+                      <th className="border-b border-black/10 px-2 py-1.5 font-medium dark:border-white/10">
+                        Item
+                      </th>
+                      <th className="border-b border-black/10 px-2 py-1.5 text-right font-medium dark:border-white/10">
+                        Lines
+                      </th>
+                      <th className="border-b border-black/10 px-2 py-1.5 text-right font-medium dark:border-white/10">
+                        Required
+                      </th>
+                      <th className="border-b border-black/10 px-2 py-1.5 text-right font-medium dark:border-white/10">
+                        To buy
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itemRows.map((r) => (
+                      <tr key={r.key} className="border-b border-black/5 last:border-0 dark:border-white/5">
+                        <td className="px-2 py-1.5">
+                          <div className="max-w-[200px] truncate font-medium" title={r.name}>
+                            {r.name}
+                          </div>
+                          <div className="font-mono text-xs text-neutral-500">{r.key}</div>
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-neutral-500">
+                          {r.lines}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-neutral-500">
+                          {fmt(r.required)}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums font-medium">
+                          {fmt(r.toBuy)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </details>
+      )}
 
       <div className="mt-6">
         {items.length === 0 ? (

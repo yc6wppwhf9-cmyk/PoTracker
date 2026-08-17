@@ -6,6 +6,7 @@ import type { PoApproval } from "@/lib/po-approvals";
 import { shortSite } from "@/lib/sites";
 import { approvePo, escalatePo } from "./actions";
 import { formatDate } from "@/lib/format";
+import { DownloadButton } from "@/app/procurement/approver/download-button";
 
 /**
  * Purchase orders awaiting the approver's decision, and those already decided.
@@ -131,6 +132,11 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
             </option>
           ))}
         </select>
+        <DownloadButton
+          path="/exports/approved-pos.xlsx"
+          filename="approved-pos.xlsx"
+          label="Download approved POs"
+        />
       </div>
 
       {error && (

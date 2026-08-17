@@ -377,6 +377,121 @@ def export_grn_register(user: CurrentUser = Depends(get_current_user)):
     )
 
 
+@router.get("/approved-pos.xlsx")
+def export_approved_pos(user: CurrentUser = Depends(get_current_user)):
+    """Every purchase order the approver has signed off, with when.
+
+    One row per PO, not per line: approval is recorded once per order, so the
+    date and time travel with the order rather than being repeated a line at a
+    time.
+    """
+    require_roles(user, "approver", "md", "purchase_head", "po_team")
+    limit_exports(user.id)
+
+    pos = fetch_all(
+        lambda: user.client.table("po")
+        .select(
+            "po_number, site, etd, approved_at, approved_by, approval_note, "
+            "rm_sheet_id, rm_sheet(style_ref), "
+            "po_line(item_code, lot, ordered_qty, rate, supplier)"
+        )
+        .eq("approval_status", "approved"),
+        order_by="id",
+    )
+    if not pos:
+        raise HTTPException(
+            422, "Nothing to export — no purchase order has been approved yet."
+        )
+
+    approver_ids = list({p["approved_by"] for p in pos if p.get("approved_by")})
+    names: dict[str, str] = {}
+    if approver_ids:
+        profs = (
+            user.client.table("profiles")
+            .select("id, full_name, email")
+            .in_("id", approver_ids)
+            .execute()
+            .data
+        ) or []
+        names = {
+            pr["id"]: pr.get("full_name") or pr.get("email") or pr["id"][:8]
+            for pr in profs
+        }
+
+    # Most recently approved first.
+    pos.sort(key=lambda p: p.get("approved_at") or "", reverse=True)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Approved POs"
+    _write_header(ws, [
+        "PO number", "Sheet", "Supplier", "Site", "ETD", "Ordered qty",
+        "Value", "Approved by", "Approved date", "Approved time", "Note",
+    ])
+
+    for i, p in enumerate(pos, start=2):
+        lines = p.get("po_line") or []
+        supplier = ", ".join(
+            sorted({s for l in lines if (s := (l.get("supplier") or "").strip())})
+        ) or None
+        ordered = sum(_num(l.get("ordered_qty")) for l in lines)
+        value = sum(
+            _num(l.get("ordered_qty")) * _num(l.get("rate"))
+            for l in lines
+            if l.get("rate") is not None
+        ) or None
+
+        sheet = p.get("rm_sheet")
+        if isinstance(sheet, list):
+            sheet = sheet[0] if sheet else None
+        style_ref = (sheet or {}).get("style_ref")
+
+        # Split once, here, rather than leaving date and time bundled in one
+        # ISO string a reviewer would otherwise have to parse by eye.
+        approved_at = p.get("approved_at")
+        approved_date = approved_time = None
+        if approved_at:
+            try:
+                dt = datetime.datetime.fromisoformat(str(approved_at).replace("Z", "+00:00"))
+                approved_date = dt.date()
+                approved_time = dt.strftime("%H:%M:%S")
+            except ValueError:
+                pass
+
+        values = [
+            p.get("po_number"), style_ref, supplier, p.get("site"), p.get("etd"),
+            ordered, value,
+            names.get(p.get("approved_by")) if p.get("approved_by") else None,
+            approved_date, approved_time, p.get("approval_note"),
+        ]
+        for c, v in enumerate(values, start=1):
+            cell = ws.cell(row=i, column=c, value=v)
+            if c in (6, 7):
+                cell.number_format = "#,##0.00"
+            if c == 9 and v is not None:
+                cell.number_format = "yyyy-mm-dd"
+
+    _autosize(ws, {1: 20, 2: 16, 3: 30, 4: 20, 5: 14, 8: 24, 11: 30})
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    today = datetime.date.today().isoformat()
+    filename = f"approved-pos-{today}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type=XLSX_MEDIA,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
+
+
 @router.get("/pending-pos.xlsx")
 def export_pending_pos(user: CurrentUser = Depends(get_current_user)):
     """Purchase orders with material still outstanding, line by line.
