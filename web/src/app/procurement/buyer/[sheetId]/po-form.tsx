@@ -451,7 +451,6 @@ export function PoForm({
                           type="text"
                           value={a.supplier}
                           onChange={(e) => set(a.id, "supplier", e.target.value)}
-                          disabled={!a.include}
                           placeholder="supplier name"
                           className={`w-40 ${inputBase}`}
                         />
