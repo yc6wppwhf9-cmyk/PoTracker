@@ -51,7 +51,6 @@ export function PoForm({
   items: AssignedItem[];
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<"select" | "details">("select");
   const [hideDone, setHideDone] = useState(true);
   const [search, setSearch] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
@@ -202,8 +201,11 @@ export function PoForm({
     setAllocs((prev) => prev.filter((a) => a.id !== id));
   }
 
+  const thBase =
+    "sticky top-0 z-20 whitespace-nowrap border-b border-black/10 bg-white px-3 py-2 font-medium dark:border-white/10 dark:bg-neutral-900";
+  const tdBase = "border-b border-black/5 px-3 py-1.5 dark:border-white/5";
   const inputBase =
-    "w-full rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950";
+    "rounded-md border border-black/10 bg-white px-2 py-1 text-sm disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950";
 
   // A line fully covered by existing POs has nothing left to buy. It is not
   // deleted — the buyer may want to see what a sheet contained, and a line
@@ -248,409 +250,327 @@ export function PoForm({
     );
   }
 
-  // Only items with at least one included allocation — the details step works
-  // over exactly what step 1 picked, grouped back to one card per item.
-  const selectedItems = items.filter((it) => {
-    const group = byItem.get(keyOf(it)) ?? [];
-    return group.some((a) => a.include);
-  });
-
   return (
     <>
       <form action={formAction} id="po-form">
         <input type="hidden" name="sheet_id" value={sheetId} />
         <input type="hidden" name="lines" value={JSON.stringify(payload)} />
 
-        {/* Two steps rather than one wide table: picking which lines to order
-            and filling in each one's supplier/date/site are different kinds of
-            work, and doing both in the same horizontally-scrolling row meant a
-            buyer lost track of which column they were in on a long sheet.
-            Step 1 stays a plain list to tick; step 2 shows only what got
-            ticked, as cards that never need to scroll sideways. */}
-        <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-1 dark:bg-slate-800/80">
-          <button
-            type="button"
-            onClick={() => setStep("select")}
-            className={`cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
-              step === "select"
-                ? "bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-white"
-                : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-            }`}
-          >
-            1. Select items ({selected.length ? `${selected.length} picked` : items.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => selected.length > 0 && setStep("details")}
-            disabled={selected.length === 0}
-            className={`cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
-              step === "details"
-                ? "bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-white"
-                : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-            }`}
-          >
-            2. Order details ({selected.length})
-          </button>
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="relative">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPageIndex(0);
+              }}
+              placeholder="Search item, code, category or lot…"
+              className="w-72 max-w-full rounded-md border border-black/10 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/15 dark:bg-neutral-950"
+            />
+            <svg
+              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"
+              />
+            </svg>
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={(e) => setAllVisibleIncluded(e.target.checked)}
+              disabled={visibleItems.length === 0}
+              className="size-4 accent-indigo-600"
+            />
+            Select all{visibleItems.length > 0 ? ` (${visibleItems.length})` : ""}
+          </label>
+
+          {done > 0 && (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-500">
+              <input
+                type="checkbox"
+                checked={hideDone}
+                onChange={(e) => {
+                  setHideDone(e.target.checked);
+                  setPageIndex(0);
+                }}
+                className="size-4 accent-indigo-600"
+              />
+              Hide {done} line(s) already fully ordered
+            </label>
+          )}
+
+          {q !== "" && (
+            <span className="text-xs text-neutral-400">
+              {visibleItems.length} match(es)
+            </span>
+          )}
         </div>
 
-        {step === "select" ? (
-          <>
-            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <div className="relative">
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setPageIndex(0);
-                  }}
-                  placeholder="Search item, code, category or lot…"
-                  className="w-72 max-w-full rounded-md border border-black/10 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/15 dark:bg-neutral-950"
-                />
-                <svg
-                  className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"
-                  />
-                </svg>
-              </div>
+        {/* The row is wider than most screens, so the two columns that say
+            WHICH material this is are pinned; scrolled right without them a
+            buyer types supplier and rate against a line they cannot identify. */}
+        <div className="max-h-[70vh] overflow-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
+          <table className="w-full border-separate border-spacing-0 text-sm">
+            <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
+              <tr>
+                <th className={`${thBase} sticky left-0 z-30`}></th>
+                <th className={`${thBase} sticky left-10 z-30 border-r`}>Item</th>
+                {["Lot", "Category", "To buy", "Order qty", "Supplier",
+                  "ETD", "Delivery site", "Rate", "Value", "Purchase remark",
+                  ""].map((h, i) => (
+                  <th key={h || `blank${i}`} className={thBase}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pageItems.map((it) => {
+                const k = keyOf(it);
+                const group = byItem.get(k) ?? [];
+                const allocated = allocatedFor(k);
+                const anyIncluded = group.some((a) => a.include);
+                // Judged against what is still outstanding, not the original
+                // requirement — otherwise topping up the last 1,960 of a 3,920
+                // line reads as a 50% under-order.
+                const left = outstanding(it);
+                const over = anyIncluded && allocated > left;
+                const under = anyIncluded && allocated < left;
 
-              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={(e) => setAllVisibleIncluded(e.target.checked)}
-                  disabled={visibleItems.length === 0}
-                  className="size-4 accent-indigo-600"
-                />
-                Select all{visibleItems.length > 0 ? ` (${visibleItems.length})` : ""}
-              </label>
-
-              {done > 0 && (
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-500">
-                  <input
-                    type="checkbox"
-                    checked={hideDone}
-                    onChange={(e) => {
-                      setHideDone(e.target.checked);
-                      setPageIndex(0);
-                    }}
-                    className="size-4 accent-indigo-600"
-                  />
-                  Hide {done} line(s) already fully ordered
-                </label>
-              )}
-
-              {q !== "" && (
-                <span className="text-xs text-neutral-400">
-                  {visibleItems.length} match(es)
-                </span>
-              )}
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
-              <table className="w-full text-sm">
-                <thead className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-white/10">
-                  <tr>
-                    <th className="w-10 px-3 py-2 font-medium"></th>
-                    <th className="px-3 py-2 font-medium">Item</th>
-                    <th className="px-3 py-2 font-medium">Lot</th>
-                    <th className="px-3 py-2 font-medium">Category</th>
-                    <th className="px-3 py-2 font-medium">To buy</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageItems.map((it) => {
-                    const k = keyOf(it);
-                    const anyIncluded = (byItem.get(k) ?? []).some((a) => a.include);
-                    return (
-                      <tr
-                        key={k}
-                        className={
-                          anyIncluded
-                            ? "bg-indigo-50/60 dark:bg-indigo-950/20"
-                            : "border-b border-black/5 last:border-0 dark:border-white/5"
-                        }
-                      >
-                        <td className="px-3 py-2">
+                return group.map((a, idx) => {
+                  const first = idx === 0;
+                  const pinBg = a.include
+                    ? "bg-indigo-50 dark:bg-indigo-950/40"
+                    : "bg-white dark:bg-neutral-900";
+                  return (
+                    <tr
+                      key={a.id}
+                      className={
+                        a.include
+                          ? "bg-indigo-50/60 dark:bg-indigo-950/20"
+                          : "odd:bg-black/[0.015] dark:odd:bg-white/[0.02]"
+                      }
+                    >
+                      {/* Pinned cells need their own background, or the
+                          scrolling columns show through them. */}
+                      <td className={`${tdBase} sticky left-0 z-10 w-10 ${pinBg}`}>
+                        {/* Only the first row carries the tick: it selects the
+                            whole line, splits included. */}
+                        {first && (
                           <input
                             type="checkbox"
-                            checked={anyIncluded}
+                            checked={a.include}
                             onChange={(e) => setIncluded(k, e.target.checked)}
                             className="cursor-pointer"
                           />
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="max-w-[320px] truncate font-medium" title={it.name}>
-                            {it.name}
+                        )}
+                      </td>
+                      <td className={`${tdBase} sticky left-10 z-10 border-r ${pinBg}`}>
+                        {first ? (
+                          <>
+                            <div
+                              className="max-w-[240px] truncate font-medium"
+                              title={it.name}
+                            >
+                              {it.name}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-neutral-500">
+                              <span className="font-mono">{it.item_code}</span>
+                              <button
+                                type="button"
+                                onClick={() => splitRow(k)}
+                                title="Buy this line from more than one supplier"
+                                className="rounded border border-indigo-200 px-1 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                              >
+                                + split
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="pl-3 text-xs text-neutral-500">
+                            ↳ same line, another supplier
                           </div>
-                          <span className="font-mono text-xs text-neutral-500">{it.item_code}</span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-neutral-500">
-                          {it.lot ?? "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-neutral-500">
-                          {it.category}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                          {outstanding(it).toLocaleString()}
-                          {(it.ordered_qty > 0 || it.drafted_qty > 0) && (
+                        )}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap font-medium text-neutral-600 dark:text-neutral-300`}>
+                        {first ? (it.lot ?? "—") : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-neutral-500`}>
+                        {first ? it.category : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-500`}>
+                        {first ? outstanding(it).toLocaleString() : ""}
+                        {/* What has already been committed, so a line that
+                            looks small is explained rather than surprising. */}
+                        {first &&
+                          (it.ordered_qty > 0 || it.drafted_qty > 0) && (
                             <div className="text-[11px] font-normal text-neutral-400">
-                              of {it.required_qty.toLocaleString()}
+                              of {it.required_qty.toLocaleString()} ·{" "}
+                              {it.ordered_qty > 0 &&
+                                `${it.ordered_qty.toLocaleString()} ordered`}
+                              {it.ordered_qty > 0 && it.drafted_qty > 0 && " · "}
+                              {it.drafted_qty > 0 &&
+                                `${it.drafted_qty.toLocaleString()} pending`}
                             </div>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {visibleItems.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-neutral-500">
-                        {q !== ""
-                          ? "No lines match your search."
-                          : "No lines left to order on this sheet."}
+                        {first && group.length > 1 && anyIncluded && (
+                          <div
+                            className={`text-[11px] ${
+                              over || under
+                                ? "text-amber-700 dark:text-amber-400"
+                                : "text-green-700 dark:text-green-400"
+                            }`}
+                          >
+                            {allocated.toLocaleString()} allocated
+                          </div>
+                        )}
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={a.ordered}
+                          onChange={(e) => set(a.id, "ordered", e.target.value)}
+                          className={`w-28 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="text"
+                          value={a.supplier}
+                          onChange={(e) => set(a.id, "supplier", e.target.value)}
+                          placeholder="supplier name"
+                          className={`w-40 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="date"
+                          value={a.etd}
+                          onChange={(e) => set(a.id, "etd", e.target.value)}
+                          className={`w-36 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        <select
+                          value={a.site}
+                          onChange={(e) => set(a.id, "site", e.target.value)}
+                          className={`w-44 ${inputBase}`}
+                          title={a.site || undefined}
+                        >
+                          <option value="">— site —</option>
+                          {SITES.map((sName) => (
+                            <option key={sName} value={sName}>
+                              {shortSite(sName)}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={a.rate}
+                          onChange={(e) => set(a.id, "rate", e.target.value)}
+                          placeholder="per unit"
+                          className={`w-24 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-600 dark:text-neutral-300`}>
+                        {a.include && a.rate !== ""
+                          ? ((Number(a.rate) || 0) * (Number(a.ordered) || 0)).toLocaleString(
+                              undefined,
+                              { maximumFractionDigits: 2 }
+                            )
+                          : "—"}
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="text"
+                          value={a.remark}
+                          onChange={(e) => set(a.id, "remark", e.target.value)}
+                          placeholder="note"
+                          className={`w-40 ${inputBase}`}
+                        />
+                      </td>
+                      <td className={tdBase}>
+                        {!first && (
+                          <button
+                            type="button"
+                            onClick={() => removeAlloc(a.id)}
+                            title="Remove this split"
+                            className="rounded px-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                          >
+                            ✕
+                          </button>
+                        )}
                       </td>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-500">
-              <span className="tabular-nums">
-                {visibleItems.length === 0
-                  ? "No lines"
-                  : `Showing ${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min(
-                      (page + 1) * PAGE_SIZE,
-                      visibleItems.length
-                    ).toLocaleString()} of ${visibleItems.length.toLocaleString()}`}
-              </span>
-
-              {pageCount > 1 && (
-                <span className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
-                    disabled={page === 0}
-                    className="rounded-md border border-black/10 px-2 py-1 font-medium disabled:opacity-40 hover:bg-neutral-50 dark:border-white/15 dark:hover:bg-neutral-800"
+                  );
+                });
+              })}
+              {visibleItems.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={13}
+                    className="px-4 py-8 text-center text-sm text-neutral-500"
                   >
-                    Previous
-                  </button>
-                  <span className="tabular-nums">
-                    Page {page + 1} of {pageCount}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
-                    disabled={page >= pageCount - 1}
-                    className="rounded-md border border-black/10 px-2 py-1 font-medium disabled:opacity-40 hover:bg-neutral-50 dark:border-white/15 dark:hover:bg-neutral-800"
-                  >
-                    Next
-                  </button>
-                </span>
+                    {q !== ""
+                      ? "No lines match your search."
+                      : "No lines left to order on this sheet."}
+                  </td>
+                </tr>
               )}
-            </div>
+            </tbody>
+          </table>
+        </div>
 
-            <div className="mt-4 flex justify-end">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-500">
+          <span className="tabular-nums">
+            {visibleItems.length === 0
+              ? "No lines"
+              : `Showing ${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min(
+                  (page + 1) * PAGE_SIZE,
+                  visibleItems.length
+                ).toLocaleString()} of ${visibleItems.length.toLocaleString()}`}
+          </span>
+
+          {pageCount > 1 && (
+            <span className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => selected.length > 0 && setStep("details")}
-                disabled={selected.length === 0}
-                className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+                onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
+                disabled={page === 0}
+                className="rounded-md border border-black/10 px-2 py-1 font-medium disabled:opacity-40 hover:bg-neutral-50 dark:border-white/15 dark:hover:bg-neutral-800"
               >
-                Next: fill in order details ({selected.length}) →
+                Previous
               </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => setStep("select")}
-              className="mb-3 text-sm text-neutral-500 hover:underline"
-            >
-              ← Back to item selection
-            </button>
-
-            <div className="space-y-3">
-              {selectedItems.map((it) => {
-                const k = keyOf(it);
-                const group = (byItem.get(k) ?? []).filter((a) => a.include);
-                const allocated = allocatedFor(k);
-                const left = outstanding(it);
-                const over = allocated > left;
-                const under = allocated < left;
-
-                return (
-                  <div
-                    key={k}
-                    className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-900"
-                  >
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-black/5 pb-3 dark:border-white/5">
-                      <div>
-                        <div className="font-medium" title={it.name}>
-                          {it.name}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
-                          <span className="font-mono">{it.item_code}</span>
-                          <span>{it.lot ?? "no lot"}</span>
-                          <span>{it.category}</span>
-                          <span>To buy: {left.toLocaleString()}</span>
-                          {group.length > 1 && (
-                            <span
-                              className={
-                                over || under
-                                  ? "text-amber-700 dark:text-amber-400"
-                                  : "text-green-700 dark:text-green-400"
-                              }
-                            >
-                              {allocated.toLocaleString()} allocated
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => splitRow(k)}
-                          title="Buy this line from more than one supplier"
-                          className="rounded border border-indigo-200 px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
-                        >
-                          + split
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIncluded(k, false)}
-                          title="Remove this item from the order"
-                          className="rounded px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      {group.map((a, idx) => (
-                        <div
-                          key={a.id}
-                          className={
-                            group.length > 1
-                              ? "grid grid-cols-2 gap-3 rounded-xl border border-black/5 p-3 dark:border-white/5 sm:grid-cols-3 lg:grid-cols-6"
-                              : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
-                          }
-                        >
-                          {group.length > 1 && (
-                            <div className="col-span-2 -mb-1 flex items-center justify-between sm:col-span-3 lg:col-span-6">
-                              <span className="text-xs font-medium text-neutral-500">
-                                Split {idx + 1}
-                              </span>
-                              {idx > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeAlloc(a.id)}
-                                  title="Remove this split"
-                                  className="text-xs font-medium text-rose-600 hover:underline dark:text-rose-400"
-                                >
-                                  ✕ remove split
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs text-neutral-500">Order qty</span>
-                            <input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={a.ordered}
-                              onChange={(e) => set(a.id, "ordered", e.target.value)}
-                              className={inputBase}
-                            />
-                          </label>
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs text-neutral-500">Supplier</span>
-                            <input
-                              type="text"
-                              value={a.supplier}
-                              onChange={(e) => set(a.id, "supplier", e.target.value)}
-                              placeholder="supplier name"
-                              className={inputBase}
-                            />
-                          </label>
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs text-neutral-500">ETD</span>
-                            <input
-                              type="date"
-                              value={a.etd}
-                              onChange={(e) => set(a.id, "etd", e.target.value)}
-                              className={inputBase}
-                            />
-                          </label>
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs text-neutral-500">Delivery site</span>
-                            <select
-                              value={a.site}
-                              onChange={(e) => set(a.id, "site", e.target.value)}
-                              className={inputBase}
-                              title={a.site || undefined}
-                            >
-                              <option value="">— site —</option>
-                              {SITES.map((sName) => (
-                                <option key={sName} value={sName}>
-                                  {shortSite(sName)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs text-neutral-500">Rate</span>
-                            <input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={a.rate}
-                              onChange={(e) => set(a.id, "rate", e.target.value)}
-                              placeholder="per unit"
-                              className={inputBase}
-                            />
-                          </label>
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs text-neutral-500">Remark</span>
-                            <input
-                              type="text"
-                              value={a.remark}
-                              onChange={(e) => set(a.id, "remark", e.target.value)}
-                              placeholder="note"
-                              className={inputBase}
-                            />
-                          </label>
-                          <div className="col-span-2 text-xs text-neutral-500 sm:col-span-3 lg:col-span-6">
-                            Value:{" "}
-                            <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
-                              {a.rate !== ""
-                                ? ((Number(a.rate) || 0) * (Number(a.ordered) || 0)).toLocaleString(
-                                    undefined,
-                                    { maximumFractionDigits: 2 }
-                                  )
-                                : "—"}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+              <span className="tabular-nums">
+                Page {page + 1} of {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
+                disabled={page >= pageCount - 1}
+                className="rounded-md border border-black/10 px-2 py-1 font-medium disabled:opacity-40 hover:bg-neutral-50 dark:border-white/15 dark:hover:bg-neutral-800"
+              >
+                Next
+              </button>
+            </span>
+          )}
+        </div>
       </form>
 
       {supplierGroups.length > 1 && (
