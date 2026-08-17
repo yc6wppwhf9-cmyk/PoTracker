@@ -442,7 +442,6 @@ export function PoForm({
                           min="0"
                           value={a.ordered}
                           onChange={(e) => set(a.id, "ordered", e.target.value)}
-                          disabled={!a.include}
                           className={`w-28 ${inputBase}`}
                         />
                       </td>
@@ -460,7 +459,6 @@ export function PoForm({
                           type="date"
                           value={a.etd}
                           onChange={(e) => set(a.id, "etd", e.target.value)}
-                          disabled={!a.include}
                           className={`w-36 ${inputBase}`}
                         />
                       </td>
@@ -468,7 +466,6 @@ export function PoForm({
                         <select
                           value={a.site}
                           onChange={(e) => set(a.id, "site", e.target.value)}
-                          disabled={!a.include}
                           className={`w-44 ${inputBase}`}
                           title={a.site || undefined}
                         >
@@ -487,7 +484,6 @@ export function PoForm({
                           min="0"
                           value={a.rate}
                           onChange={(e) => set(a.id, "rate", e.target.value)}
-                          disabled={!a.include}
                           placeholder="per unit"
                           className={`w-24 ${inputBase}`}
                         />
@@ -505,7 +501,6 @@ export function PoForm({
                           type="text"
                           value={a.remark}
                           onChange={(e) => set(a.id, "remark", e.target.value)}
-                          disabled={!a.include}
                           placeholder="note"
                           className={`w-40 ${inputBase}`}
                         />
