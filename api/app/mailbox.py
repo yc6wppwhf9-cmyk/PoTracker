@@ -182,27 +182,39 @@ def search_criteria(from_addresses: Iterable[str] = ()) -> str:
     return f"UNSEEN {expr}"
 
 
-_SEQ_NO = re.compile(rb"^\s*(\d+)\s+\(")
+_UID_TAG = re.compile(rb"UID\s+(\d+)")
 
 # Enough to identify a message — including the fallback identity used when
 # Message-ID is missing. Headers only, so this stays one small round trip even
-# when the search matches thousands.
-_ID_HEADERS = "(BODY.PEEK[HEADER])"
+# when the search matches thousands. UID is requested explicitly because the
+# leading number in a FETCH response line is always the sequence number, even
+# when the fetch was addressed by UID — the UID has to be read back out of the
+# response body, not assumed from the request.
+_ID_HEADERS = "(UID BODY.PEEK[HEADER])"
 
 # Headers are small, but a thousand of them in one command is a very long line
 # and servers differ on how much they will take.
 _HEADER_CHUNK = 200
 
 
-def _headers(conn: imaplib.IMAP4, ids: list[bytes]) -> dict[str, Message]:
-    """{sequence number: message, headers only} — cheap enough to do for all."""
+def _headers(conn: imaplib.IMAP4, uids: list[bytes]) -> dict[str, Message]:
+    """{uid: message, headers only} — cheap enough to do for all.
+
+    Addressed and keyed by UID, not sequence number. Sequence numbers are only
+    a message's position in the mailbox for the current connection, and shift
+    whenever another message is expunged — including by an unrelated client
+    reading the same inbox between one run of this job and the next. A
+    sequence number handed back later, e.g. to mark_seen on a fresh
+    connection, can by then point at a different message entirely. UIDs are
+    the one identifier IMAP guarantees stays put.
+    """
     out: dict[str, Message] = {}
-    for i in range(0, len(ids), _HEADER_CHUNK):
-        chunk = ids[i : i + _HEADER_CHUNK]
+    for i in range(0, len(uids), _HEADER_CHUNK):
+        chunk = uids[i : i + _HEADER_CHUNK]
         if not chunk:
             continue
         try:
-            typ, payload = conn.fetch(b",".join(chunk), _ID_HEADERS)
+            typ, payload = conn.uid("fetch", b",".join(chunk), _ID_HEADERS)
         except Exception:
             continue
         if typ != "OK" or not payload:
@@ -210,7 +222,7 @@ def _headers(conn: imaplib.IMAP4, ids: list[bytes]) -> dict[str, Message]:
         for item in payload:
             if not isinstance(item, tuple) or len(item) < 2:
                 continue
-            m = _SEQ_NO.match(item[0] or b"")
+            m = _UID_TAG.search(item[0] or b"")
             raw = item[1]
             if not m or not isinstance(raw, (bytes, bytearray)):
                 continue
@@ -218,9 +230,9 @@ def _headers(conn: imaplib.IMAP4, ids: list[bytes]) -> dict[str, Message]:
     return out
 
 
-def _identify(conn: imaplib.IMAP4, ids: list[bytes]) -> dict[str, str]:
-    """{sequence number: message_id} for the given messages."""
-    return {seq: message_id(msg) for seq, msg in _headers(conn, ids).items()}
+def _identify(conn: imaplib.IMAP4, uids: list[bytes]) -> dict[str, str]:
+    """{uid: message_id} for the given messages."""
+    return {uid: message_id(msg) for uid, msg in _headers(conn, uids).items()}
 
 
 def fetch_unseen(
@@ -290,12 +302,17 @@ def fetch_unseen(
         conn.login(user, password)
         conn.select(folder)
         criteria = search_criteria(from_addresses)
-        typ, data = conn.search(None, criteria)
+        # UID SEARCH, not SEARCH: everything downstream — the header cache,
+        # the rejected-message identity, mark_seen on a later connection — has
+        # to refer to the same message it looked at, and a sequence number
+        # cannot promise that once time passes and another client may have
+        # expunged something out from under it.
+        typ, data = conn.uid("search", None, criteria)
         if typ != "OK" and criteria != "UNSEEN":
             # A server that dislikes the expression must not mean no imports at
             # all. Fall back to the plain search; the jam is better than silence
             # and should_process still guards what gets stored.
-            typ, data = conn.search(None, "UNSEEN")
+            typ, data = conn.uid("search", None, "UNSEEN")
         if typ != "OK":
             return []
         # OLDEST first. This took the newest `limit`, so once more than that
@@ -323,8 +340,8 @@ def fetch_unseen(
         rejected = 0
 
         for num in ids:
-            seq = num.decode()
-            head = heads.get(seq)
+            uid = num.decode()
+            head = heads.get(uid)
             if head is None:
                 # Unknown means unjudged. The expensive mistake is the one that
                 # drops a register, so an unreadable header earns a full look.
@@ -343,7 +360,7 @@ def fetch_unseen(
                 # header fetch each.
                 if rejected < reject_limit:
                     rejected += 1
-                    out.append({"uid": seq, "msg": head, "header_reject": why})
+                    out.append({"uid": uid, "msg": head, "header_reject": why})
                 continue
 
             wanted.append(num)
@@ -351,8 +368,9 @@ def fetch_unseen(
                 break
 
         for num in wanted:
-            # BODY.PEEK avoids setting \Seen just by looking.
-            typ, payload = conn.fetch(num, "(BODY.PEEK[])")
+            # BODY.PEEK avoids setting \Seen just by looking. Addressed by
+            # UID, same as everything else here.
+            typ, payload = conn.uid("fetch", num, "(BODY.PEEK[])")
             if typ != "OK" or not payload or not payload[0]:
                 continue
             raw = payload[0][1]
@@ -374,7 +392,15 @@ def fetch_unseen(
 
 def mark_seen(host: str, user: str, password: str, uids: list[str],
               folder: str = "INBOX", port: int = 993) -> None:
-    """Mark messages read, once their contents are safely stored."""
+    """Mark messages read, once their contents are safely stored.
+
+    By UID, on a fresh connection. A sequence number from the fetch_unseen
+    connection would not even mean the same thing here — it is only a
+    position in the mailbox, and this is a new session that may see a
+    different mailbox state (something else expunged in between) even before
+    accounting for the position having shifted. UID is the identifier IMAP
+    guarantees survives that.
+    """
     if not uids:
         return
     conn = imaplib.IMAP4_SSL(host, port)
@@ -383,7 +409,7 @@ def mark_seen(host: str, user: str, password: str, uids: list[str],
         conn.select(folder)
         for uid in uids:
             try:
-                conn.store(uid, "+FLAGS", "\\Seen")
+                conn.uid("store", uid, "+FLAGS", "\\Seen")
             except Exception:
                 continue
     finally:

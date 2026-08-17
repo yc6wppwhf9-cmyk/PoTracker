@@ -197,12 +197,27 @@ def test_the_subject_is_deliberately_not_in_the_server_search():
 
 
 class _FakeIMAP:
-    """Just enough IMAP to exercise the selection logic."""
+    """Just enough IMAP to exercise the selection logic.
+
+    Keyed by UID here, same as the real IMAP4.uid() calls this stands in for
+    — the fake's key IS the message's UID, not its position in the mailbox.
+    """
 
     def __init__(self, messages):
-        # {sequence number: EmailMessage}
+        # {uid: EmailMessage}
         self.messages = messages
         self.fetched_bodies = []
+
+    def uid(self, command, *args):
+        if command == "search":
+            _charset, criteria = args
+            return self.search(_charset, criteria)
+        if command == "fetch":
+            ids, spec = args
+            return self.fetch(ids, spec)
+        if command == "store":
+            return "OK", [b"OK"]
+        raise ValueError(f"unsupported uid command: {command}")
 
     def search(self, charset, criteria):
         return "OK", [b" ".join(k.encode() for k in self.messages)]
@@ -217,7 +232,7 @@ class _FakeIMAP:
                 continue
             if "HEADER.FIELDS" not in spec:
                 self.fetched_bodies.append(n)
-            out.append((f"{n} (".encode(), msg.as_bytes()))
+            out.append((f"{n} (UID {n} ".encode(), msg.as_bytes()))
         return "OK", out
 
 
