@@ -349,7 +349,7 @@ export function PoForm({
               <tr>
                 <th className={`${thBase} sticky left-0 z-30`}></th>
                 <th className={`${thBase} sticky left-10 z-30 border-r`}>Item</th>
-                {["Lot", "Category", "To buy", "Order qty", "Supplier",
+                {["Lot", "Category", "MR qty", "Order qty", "Supplier",
                   "ETD", "Delivery site", "Rate", "Value", "Purchase remark",
                   ""].map((h, i) => (
                   <th key={h || `blank${i}`} className={thBase}>
