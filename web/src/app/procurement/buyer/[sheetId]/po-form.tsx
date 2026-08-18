@@ -195,21 +195,19 @@ export function PoForm({
   function splitRow(itemKey: string) {
     setAllocs((prev) => {
       const siblings = prev.filter((a) => a.itemKey === itemKey);
-      const it = itemByKey.get(itemKey)!;
-      const taken = siblings
-        .filter((a) => a.include)
-        .reduce((s, a) => s + (Number(a.ordered) || 0), 0);
-      // Default the new allocation to whatever is still unallocated, so the
-      // common case — split the remainder to a second supplier — needs no
-      // arithmetic from the buyer.
-      const remaining = Math.max(0, outstanding(it) - taken);
+      // Starts at 0, not at whatever is still unallocated: setOrdered pulls
+      // the difference off the first split live as the buyer types, so a
+      // static "remaining" default here would double-count the moment they
+      // clear this field to type their own number — it reads as a drop from
+      // the default back to zero and hands that amount back to the first
+      // split, which had never given it up.
       const next: Alloc = {
         id: newId(),
         itemKey,
         // Inherits the line's state: a split of a selected line is selected,
         // and splitting an unselected one does not silently select it.
         include: siblings.some((a) => a.include),
-        ordered: remaining || 0,
+        ordered: 0,
         supplier: "",
         rate: "",
         remark: "",
