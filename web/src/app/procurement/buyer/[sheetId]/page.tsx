@@ -6,7 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm } from "./po-form";
 import type { AssignedItem } from "./assigned-item";
-import { ConsolidatedView } from "./consolidated-view";
+import { DownloadButton } from "@/app/procurement/approver/download-button";
 import { SendPoBtn, LineDeliveryFields } from "./send-po-btn";
 import { BulkSendProvider, SelectPo } from "./bulk-send";
 import { shortSite } from "@/lib/sites";
@@ -182,15 +182,22 @@ export default async function BuyerSheetPage({
       >
         ← Your sheets
       </Link>
-      <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-        {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
-      </h1>
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {sheet.style_ref ?? `Sheet ${sheet.id.slice(0, 8)}`}
+        </h1>
+        {items.length > 0 && (
+          <DownloadButton
+            path={`/exports/rm-sheets/${sheetId}/buyer-assignments.xlsx`}
+            filename={`your-assignments-${sheet.style_ref ?? sheetId.slice(0, 8)}.xlsx`}
+            label="Download your assignments"
+          />
+        )}
+      </div>
       <p className="mt-1 text-neutral-500">
         {items.length} item(s) assigned to you. Select the items you are
         ordering, then record the supplier and rate for each.
       </p>
-
-      <ConsolidatedView items={items} />
 
       <div className="mt-6">
         {items.length === 0 ? (
