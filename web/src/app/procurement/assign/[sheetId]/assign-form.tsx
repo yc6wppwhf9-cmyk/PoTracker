@@ -18,6 +18,7 @@ export type CategoryGroup = {
   totalQty: number;
   currentBuyerId: string | null;
   mixed: boolean;
+  hasUnassigned: boolean;
   needsReview: boolean;
   unmatched: boolean;
 };
@@ -30,6 +31,7 @@ export type InvItemGroup = {
   totalQty: number;
   currentBuyerId: string | null;
   mixed: boolean;
+  hasUnassigned: boolean;
 };
 
 const initial: AssignState = { error: null, ok: false };
@@ -114,33 +116,38 @@ export function AssignForm({
     );
   }, [invGroups, searchQuery]);
 
-  // A mixed group counts as assigned — its lines already have buyers, just not
-  // a single one — so the tally doesn't read it as outstanding work.
+  // A group counts as assigned when a buyer is chosen for it, or when it is a
+  // real split across buyers with no line left unassigned. A split that still
+  // has blank lines (mixed && hasUnassigned) is NOT done — those lines have no
+  // buyer yet, so it stays outstanding until one is picked for the remainder.
   const assignedCatCount = groups.filter(
-    (g) => !g.unmatched && (categorySelection[g.key] || g.mixed)
+    (g) => !g.unmatched && (categorySelection[g.key] || (g.mixed && !g.hasUnassigned))
   ).length;
   const totalAssignableCat = groups.filter((g) => !g.unmatched).length;
 
   const assignedInvCount = invGroups.filter(
-    (g) => invSelection[g.itemCode] || g.mixed
+    (g) => invSelection[g.itemCode] || (g.mixed && !g.hasUnassigned)
   ).length;
 
   const payloadAssignments = useMemo(() => {
     if (viewMode === "category") {
-      // A mixed category is split across buyers — no single buyer owns it, so
-      // its dropdown initialises blank. Sending a blank buyerId tells the RPC
-      // to unassign every line in the category, which would wipe that split
-      // (this is exactly how a per-item Runner split got lost). Only send a
-      // mixed category once someone deliberately picks a buyer for the whole
-      // of it; leave it out otherwise so its per-item assignments stand.
+      // A category with existing per-line assignments — split across buyers
+      // (mixed) or a lone buyer plus still-blank lines (hasUnassigned) — seeds
+      // its dropdown blank. Sending a blank buyerId tells the RPC to unassign
+      // every line, which would wipe those assignments (this is exactly how a
+      // per-item Runner split got lost). Leave such a category out while its
+      // selection is blank so its per-item assignments stand; only send it once
+      // someone deliberately picks a buyer for the whole of it. A cleanly
+      // single-assigned category (currentBuyerId set) still sends its blank so
+      // the head can deliberately clear it.
       return groups
-        .filter((g) => !(g.mixed && (categorySelection[g.key] ?? "") === ""))
+        .filter((g) => !((g.mixed || g.hasUnassigned) && (categorySelection[g.key] ?? "") === ""))
         .map((g) => ({ category: g.key, buyerId: categorySelection[g.key] ?? "" }));
     } else {
-      // Same guard for the INV view: an item code split across buyers stays
-      // untouched until one is chosen for it.
+      // Same guard for the INV view: an item code with existing per-line
+      // assignments stays untouched until one buyer is chosen for it.
       return invGroups
-        .filter((g) => !(g.mixed && (invSelection[g.itemCode] ?? "") === ""))
+        .filter((g) => !((g.mixed || g.hasUnassigned) && (invSelection[g.itemCode] ?? "") === ""))
         .map((g) => ({ itemCode: g.itemCode, buyerId: invSelection[g.itemCode] ?? "" }));
     }
   }, [viewMode, groups, categorySelection, invGroups, invSelection]);
@@ -150,7 +157,7 @@ export function AssignForm({
   // read "assigned" while the notify action refused to run. notifyBuyersAction
   // reads the persisted per-line assignments, so those buyers are mailable.
   const savedAssignedCount = groups.filter(
-    (g) => !g.unmatched && (g.currentBuyerId || g.mixed)
+    (g) => !g.unmatched && (g.currentBuyerId || (g.mixed && !g.hasUnassigned))
   ).length;
 
   return (

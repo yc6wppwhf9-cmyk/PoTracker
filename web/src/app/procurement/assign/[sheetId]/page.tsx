@@ -50,7 +50,11 @@ export default async function AssignSheetPage({
     lines: number;
     items: Set<string>;
     totalQty: number;
-    buyers: Set<string | null>;
+    // Real buyer ids only. Unassigned lines are tracked by hasUnassigned, never
+    // as a null member — otherwise a single-buyer group with some still-blank
+    // lines would look like a two-way split ("mixed") and read as complete.
+    buyers: Set<string>;
+    hasUnassigned: boolean;
     needsReview: boolean;
   };
   const groups = new Map<string, Acc>();
@@ -62,7 +66,8 @@ export default async function AssignSheetPage({
     category: string;
     lines: number;
     totalQty: number;
-    buyers: Set<string | null>;
+    buyers: Set<string>;
+    hasUnassigned: boolean;
   };
   const invMap = new Map<string, InvAcc>();
 
@@ -78,13 +83,15 @@ export default async function AssignSheetPage({
         items: new Set(),
         totalQty: 0,
         buyers: new Set(),
+        hasUnassigned: false,
         needsReview: false,
       });
     const g = groups.get(cat)!;
     g.lines += 1;
     if (l.item_code) g.items.add(l.item_code);
     g.totalQty += Number(l.required_qty) || 0;
-    g.buyers.add(l.assigned_buyer ?? null);
+    if (l.assigned_buyer) g.buyers.add(l.assigned_buyer);
+    else g.hasUnassigned = true;
     if (l.needs_review) g.needsReview = true;
 
     if (l.item_code) {
@@ -96,12 +103,14 @@ export default async function AssignSheetPage({
           lines: 0,
           totalQty: 0,
           buyers: new Set(),
+          hasUnassigned: false,
         });
       }
       const ig = invMap.get(code)!;
       ig.lines += 1;
       ig.totalQty += Number(l.required_qty) || 0;
-      ig.buyers.add(l.assigned_buyer ?? null);
+      if (l.assigned_buyer) ig.buyers.add(l.assigned_buyer);
+      else ig.hasUnassigned = true;
     }
   }
 
@@ -112,8 +121,11 @@ export default async function AssignSheetPage({
       lines: g.lines,
       items: g.items.size,
       totalQty: Math.round(g.totalQty * 100) / 100,
-      currentBuyerId: g.buyers.size === 1 ? [...g.buyers][0] : null,
+      // A clean single buyer only if it also covers every line; a lone buyer
+      // with blank lines left over is not a whole-category assignment.
+      currentBuyerId: g.buyers.size === 1 && !g.hasUnassigned ? [...g.buyers][0] : null,
       mixed: g.buyers.size > 1,
+      hasUnassigned: g.hasUnassigned,
       needsReview: g.needsReview,
       unmatched: key === UNMATCHED,
     }))
@@ -129,8 +141,9 @@ export default async function AssignSheetPage({
       category: ig.category,
       lines: ig.lines,
       totalQty: Math.round(ig.totalQty * 100) / 100,
-      currentBuyerId: ig.buyers.size === 1 ? [...ig.buyers][0] : null,
+      currentBuyerId: ig.buyers.size === 1 && !ig.hasUnassigned ? [...ig.buyers][0] : null,
       mixed: ig.buyers.size > 1,
+      hasUnassigned: ig.hasUnassigned,
     }))
     .sort((a, b) => a.itemCode.localeCompare(b.itemCode));
 
