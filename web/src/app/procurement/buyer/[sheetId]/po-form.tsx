@@ -155,6 +155,32 @@ export function PoForm({
   }
 
   /**
+   * Editing a split's order qty pulls the difference off the first split of
+   * the same line, so two allocations of one lot default to summing back to
+   * what's on the line rather than needing the buyer to subtract by hand.
+   * Only the first split is adjusted — with three or more splits, which one
+   * absorbs the change would otherwise be a guess — and it is clamped at
+   * zero rather than going negative.
+   */
+  function setOrdered(id: string, itemKey: string, value: string) {
+    setAllocs((prev) => {
+      const group = prev.filter((a) => a.itemKey === itemKey);
+      const idx = group.findIndex((a) => a.id === id);
+      if (idx <= 0) {
+        return prev.map((a) => (a.id === id ? { ...a, ordered: value } : a));
+      }
+      const delta = (Number(value) || 0) - (Number(group[idx].ordered) || 0);
+      const first = group[0];
+      const rebalancedFirst = Math.max(0, (Number(first.ordered) || 0) - delta);
+      return prev.map((a) => {
+        if (a.id === id) return { ...a, ordered: value };
+        if (a.id === first.id) return { ...a, ordered: rebalancedFirst };
+        return a;
+      });
+    });
+  }
+
+  /**
    * Selecting is a decision about the material, not about each supplier split.
    * One tick covers every allocation of the line, so splitting a lot never
    * means remembering to tick the halves separately.
@@ -441,7 +467,7 @@ export function PoForm({
                           step="any"
                           min="0"
                           value={a.ordered}
-                          onChange={(e) => set(a.id, "ordered", e.target.value)}
+                          onChange={(e) => setOrdered(a.id, a.itemKey, e.target.value)}
                           className={`w-28 ${inputBase}`}
                         />
                       </td>
