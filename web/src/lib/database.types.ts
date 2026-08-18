@@ -287,6 +287,7 @@ export type Database = {
           approval_status: string
           approved_at: string | null
           approved_by: string | null
+          bill_to: string | null
           created_at: string
           created_by: string | null
           doc_path: string | null
@@ -294,6 +295,7 @@ export type Database = {
           id: string
           po_number: string | null
           rm_sheet_id: string
+          ship_to: string | null
           site: string | null
           status: string
           uploaded_by: string | null
@@ -303,6 +305,7 @@ export type Database = {
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
+          bill_to?: string | null
           created_at?: string
           created_by?: string | null
           doc_path?: string | null
@@ -310,6 +313,7 @@ export type Database = {
           id?: string
           po_number?: string | null
           rm_sheet_id: string
+          ship_to?: string | null
           site?: string | null
           status?: string
           uploaded_by?: string | null
@@ -319,6 +323,7 @@ export type Database = {
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
+          bill_to?: string | null
           created_at?: string
           created_by?: string | null
           doc_path?: string | null
@@ -326,6 +331,7 @@ export type Database = {
           id?: string
           po_number?: string | null
           rm_sheet_id?: string
+          ship_to?: string | null
           site?: string | null
           status?: string
           uploaded_by?: string | null
@@ -342,6 +348,7 @@ export type Database = {
       }
       po_line: {
         Row: {
+          bill_to: string | null
           created_at: string
           etd: string | null
           id: string
@@ -355,10 +362,12 @@ export type Database = {
           raw_label: string | null
           raw_unit: string | null
           remark: string | null
+          ship_to: string | null
           site: string | null
           supplier: string | null
         }
         Insert: {
+          bill_to?: string | null
           created_at?: string
           etd?: string | null
           id?: string
@@ -372,10 +381,12 @@ export type Database = {
           raw_label?: string | null
           raw_unit?: string | null
           remark?: string | null
+          ship_to?: string | null
           site?: string | null
           supplier?: string | null
         }
         Update: {
+          bill_to?: string | null
           created_at?: string
           etd?: string | null
           id?: string
@@ -389,6 +400,7 @@ export type Database = {
           raw_label?: string | null
           raw_unit?: string | null
           remark?: string | null
+          ship_to?: string | null
           site?: string | null
           supplier?: string | null
         }

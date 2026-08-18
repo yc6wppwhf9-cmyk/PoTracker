@@ -226,7 +226,7 @@ export default async function DashboardPage() {
       {/* Stat Tiles */}
       {tiles.length > 0 && (
         <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {tiles.map((t, idx) => (
+          {tiles.map((t) => (
             <div
               key={t.label}
               className="glass-card relative overflow-hidden rounded-2xl p-5"

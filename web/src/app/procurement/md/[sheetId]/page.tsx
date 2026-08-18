@@ -137,7 +137,7 @@ export default async function MdSheetDetailPage({
           </div>
         ) : approval ? (
           <p className="mt-4 text-xs text-neutral-400">
-            This sheet's decision is final and cannot be changed.
+            This sheet decision is final and cannot be changed.
           </p>
         ) : (
           <p className="mt-4 text-xs text-neutral-400">

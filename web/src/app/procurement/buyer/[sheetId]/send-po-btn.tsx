@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { sendPoToTeam, updatePoLineDetails } from "../actions";
-import { SITES, shortSite } from "@/lib/sites";
+import { BILL_TO_SITES, shortSite } from "@/lib/sites";
 
 const FIELD =
   "rounded-md border border-black/10 bg-white px-2 py-1 text-xs disabled:opacity-40 dark:border-white/15 dark:bg-neutral-950";
@@ -24,12 +24,14 @@ const FIELD =
 export function LineDeliveryFields({
   lineId,
   etd,
-  site,
+  billTo,
+  shipTo,
   editable,
 }: {
   lineId: string;
   etd: string | null;
-  site: string | null;
+  billTo: string | null;
+  shipTo: string | null;
   /** Sent POs are read-only; the values still show. */
   editable: boolean;
 }) {
@@ -37,15 +39,17 @@ export function LineDeliveryFields({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [localEtd, setLocalEtd] = useState(etd ?? "");
-  const [localSite, setLocalSite] = useState(site ?? "");
+  const [localBillTo, setLocalBillTo] = useState(billTo ?? "");
+  const [localShipTo, setLocalShipTo] = useState(shipTo ?? "");
 
-  function save(nextEtd: string, nextSite: string) {
+  function save(nextEtd: string, nextBillTo: string, nextShipTo: string) {
     setError(null);
     startTransition(async () => {
       const res = await updatePoLineDetails(
         lineId,
         nextEtd || null,
-        nextSite || null
+        nextBillTo || null,
+        nextShipTo || null
       );
       if (res.error) setError(res.error);
       else router.refresh();
@@ -58,7 +62,8 @@ export function LineDeliveryFields({
         <td className="px-3 py-2 text-neutral-500">
           {etd ? new Date(etd).toLocaleDateString("en-GB") : "—"}
         </td>
-        <td className="px-3 py-2 text-neutral-500">{shortSite(site)}</td>
+        <td className="px-3 py-2 text-neutral-500">{shortSite(billTo)}</td>
+        <td className="px-3 py-2 text-neutral-500">{shipTo || "—"}</td>
       </>
     );
   }
@@ -73,35 +78,49 @@ export function LineDeliveryFields({
           disabled={pending}
           onChange={(e) => {
             setLocalEtd(e.target.value);
-            save(e.target.value, localSite);
+            save(e.target.value, localBillTo, localShipTo);
           }}
           className={FIELD}
         />
       </td>
       <td className="px-3 py-2">
         <select
-          aria-label="Delivery site"
-          value={localSite}
+          aria-label="Bill to"
+          value={localBillTo}
           disabled={pending}
           onChange={(e) => {
-            setLocalSite(e.target.value);
-            save(localEtd, e.target.value);
+            setLocalBillTo(e.target.value);
+            save(localEtd, e.target.value, localShipTo);
           }}
           className={`max-w-[11rem] ${FIELD}`}
         >
           <option value="">— select —</option>
-          {SITES.map((s) => (
+          {BILL_TO_SITES.map((s) => (
             <option key={s} value={s}>
               {shortSite(s)}
             </option>
           ))}
         </select>
-        {error && (
-          <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-            {error}
-          </div>
-        )}
       </td>
+      <td className="px-3 py-2">
+        <input
+          type="text"
+          aria-label="Ship to"
+          value={localShipTo}
+          disabled={pending}
+          onChange={(e) => {
+            setLocalShipTo(e.target.value);
+            save(localEtd, localBillTo, e.target.value);
+          }}
+          className={`max-w-[12rem] ${FIELD}`}
+          placeholder="Ship to"
+        />
+      </td>
+      {error && (
+        <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+          {error}
+        </div>
+      )}
     </>
   );
 }

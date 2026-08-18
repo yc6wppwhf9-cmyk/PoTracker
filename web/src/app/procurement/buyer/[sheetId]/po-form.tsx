@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPo, type CreatePoState } from "../actions";
-import { SITES, shortSite } from "@/lib/sites";
+import { BILL_TO_SITES, shortSite } from "@/lib/sites";
 import { outstanding, type AssignedItem } from "./assigned-item";
 
 export type { AssignedItem };
@@ -34,10 +34,11 @@ type Alloc = {
   supplier: string;
   rate: string;
   remark: string;
-  /** Per item, because a buyer sets a date and a destination per material.
+  /** Per item, because a buyer sets a date and an address pair per material.
    *  Identical values across items are what group them onto one PO. */
   etd: string;
-  site: string;
+  billTo: string;
+  shipTo: string;
 };
 
 let seq = 0;
@@ -65,7 +66,8 @@ export function PoForm({
       rate: "",
       remark: "",
       etd: "",
-      site: "",
+      billTo: "",
+      shipTo: "",
     }))
   );
 
@@ -108,7 +110,9 @@ export function PoForm({
       rate: a.rate === "" ? null : Number(a.rate),
       remark: a.remark.trim() || null,
       etd: a.etd || null,
-      site: a.site || null,
+      bill_to: a.billTo || null,
+      ship_to: a.shipTo.trim() || null,
+      site: a.billTo || null,
     };
   });
 
@@ -123,23 +127,25 @@ export function PoForm({
   const supplierGroups = (() => {
     const counts = new Map<string, number>();
     for (const a of selected) {
-      // One PO per supplier, delivery date and destination: a PO document
-      // carries exactly one of each, so two dates cannot share an order.
-      const k = [a.supplier.trim(), a.etd, a.site].join("|");
+      // One PO per supplier, ETD, bill-to and ship-to: a PO document carries
+      // exactly one of each, so two address or destination combinations cannot
+      // share an order.
+      const k = [a.supplier.trim(), a.etd, a.billTo, a.shipTo].join("|");
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
     return [...counts.entries()];
   })();
   const groupLabel = (key: string) => {
-    const [sup, etd, site] = key.split("|");
+    const [sup, etd, billTo, shipTo] = key.split("|");
     return [
       sup || "no supplier yet",
       etd || "no ETD",
-      site ? shortSite(site) : "no site",
+      billTo ? shortSite(billTo) : "no bill-to",
+      shipTo || "no ship-to",
     ].join(" · ");
   };
   const missingSupplier = selected.filter((a) => !a.supplier.trim()).length;
-  const missingWhen = selected.filter((a) => !a.etd || !a.site).length;
+  const missingWhen = selected.filter((a) => !a.etd || !a.billTo || !a.shipTo).length;
 
   /** Allocated vs required for one requirement, across all its suppliers. */
   function allocatedFor(itemKey: string): number {
@@ -211,10 +217,11 @@ export function PoForm({
         supplier: "",
         rate: "",
         remark: "",
-        // The other half of a lot usually ships to the same place on the same
-        // date; only the supplier differs.
+        // The other half of a lot usually shares the same bill-to and ship-to
+        // values on the same date; only the supplier differs.
         etd: siblings[0]?.etd ?? "",
-        site: siblings[0]?.site ?? "",
+        billTo: siblings[0]?.billTo ?? "",
+        shipTo: siblings[0]?.shipTo ?? "",
       };
       const lastIdx = prev.map((a) => a.itemKey).lastIndexOf(itemKey);
       return [...prev.slice(0, lastIdx + 1), next, ...prev.slice(lastIdx + 1)];
@@ -488,18 +495,27 @@ export function PoForm({
                       </td>
                       <td className={tdBase}>
                         <select
-                          value={a.site}
-                          onChange={(e) => set(a.id, "site", e.target.value)}
+                          value={a.billTo}
+                          onChange={(e) => set(a.id, "billTo", e.target.value)}
                           className={`w-44 ${inputBase}`}
-                          title={a.site || undefined}
+                          title={a.billTo || undefined}
                         >
-                          <option value="">— site —</option>
-                          {SITES.map((sName) => (
+                          <option value="">— bill to —</option>
+                          {BILL_TO_SITES.map((sName) => (
                             <option key={sName} value={sName}>
                               {shortSite(sName)}
                             </option>
                           ))}
                         </select>
+                      </td>
+                      <td className={tdBase}>
+                        <input
+                          type="text"
+                          value={a.shipTo}
+                          onChange={(e) => set(a.id, "shipTo", e.target.value)}
+                          placeholder="Ship to"
+                          className={`w-40 ${inputBase}`}
+                        />
                       </td>
                       <td className={tdBase}>
                         <input

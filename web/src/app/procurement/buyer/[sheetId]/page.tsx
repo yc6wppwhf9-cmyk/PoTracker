@@ -81,7 +81,7 @@ export default async function BuyerSheetPage({
   const posQuery = supabase
     .from("po")
     .select(
-      "id, status, created_at, doc_path, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, remark, etd, site, item_master(name))"
+      "id, status, created_at, doc_path, etd, bill_to, ship_to, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, remark, etd, bill_to, ship_to, site, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     .eq("created_by", profile.userId)
@@ -231,6 +231,8 @@ export default async function BuyerSheetPage({
                   supplier: string | null;
                   remark: string | null;
                   etd: string | null;
+                  bill_to: string | null;
+                  ship_to: string | null;
                   site: string | null;
                   item_master: { name?: string } | null;
                 }[]) ?? [];
@@ -290,7 +292,8 @@ export default async function BuyerSheetPage({
                             <th className="px-3 py-2 font-medium">Lot</th>
                             <th className="px-3 py-2 font-medium">Ordered</th>
                             <th className="px-3 py-2 font-medium">ETD</th>
-                            <th className="px-3 py-2 font-medium">Site</th>
+                            <th className="px-3 py-2 font-medium">Bill to</th>
+                            <th className="px-3 py-2 font-medium">Ship to</th>
                             <th className="px-3 py-2 font-medium">Remark</th>
                           </tr>
                         </thead>
@@ -318,7 +321,8 @@ export default async function BuyerSheetPage({
                               <LineDeliveryFields
                                 lineId={l.id}
                                 etd={l.etd}
-                                site={l.site}
+                                billTo={l.bill_to ?? l.site ?? null}
+                                shipTo={l.ship_to ?? null}
                                 editable={p.status === "draft"}
                               />
                               <td className="px-3 py-2 text-neutral-500">

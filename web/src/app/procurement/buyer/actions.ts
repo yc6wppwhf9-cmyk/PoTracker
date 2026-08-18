@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { fetchAll } from "@/lib/supabase/fetch-all";
 import { notifyPoDrafted } from "@/lib/notify";
-import { isKnownSite } from "@/lib/sites";
+import { isKnownBillTo } from "@/lib/sites";
 
 export type CreatePoState = {
   error: string | null;
@@ -23,6 +23,8 @@ type LineInput = {
   rate?: number | null;
   remark?: string | null;
   etd?: string | null;
+  bill_to?: string | null;
+  ship_to?: string | null;
   site?: string | null;
 };
 
@@ -92,14 +94,15 @@ export async function createPo(
       poId: null,
     };
 
-  // One PO per supplier, delivery date and destination. A purchase order
-  // document carries exactly one of each — one vendor, one delivery date, one
-  // ship-to — and the signed document is attached to the `po` row, so a draft
-  // mixing any of them could only ever match one of its lines. Lines missing a
-  // value group together and the PO team can still work on them.
-  const badSite = lines.find((l) => l.site && !isKnownSite(l.site));
-  if (badSite)
-    return { error: `Unknown delivery site: ${badSite.site}.`, poId: null };
+  // One PO per supplier, delivery date, bill-to and ship-to. The printed
+  // purchase order carries exactly one visible value for each of those fields,
+  // so a buyer cannot mix incompatible addresses or destinations on one draft.
+  const badBillTo = lines.find((l) => (l.bill_to ?? l.site) && !isKnownBillTo(l.bill_to ?? l.site));
+  if (badBillTo)
+    return {
+      error: `Unknown bill-to location: ${badBillTo.bill_to ?? badBillTo.site}.`,
+      poId: null,
+    };
 
   // Grouped by supplier alone. ETD and site are now per line, so a supplier
   // shipping to two sites on two dates is one order with four lines rather
@@ -128,7 +131,9 @@ export async function createPo(
         created_by: me.userId,
         status: "draft",
         etd: only(group.map((l) => l.etd)),
-        site: only(group.map((l) => l.site)),
+        bill_to: only(group.map((l) => l.bill_to ?? l.site)),
+        ship_to: only(group.map((l) => l.ship_to ?? null)),
+        site: only(group.map((l) => l.bill_to ?? l.site)),
       })
       .select("id")
       .limit(1);
@@ -160,7 +165,9 @@ export async function createPo(
             : Number(l.rate),
         remark: l.remark?.trim() ? l.remark.trim() : null,
         etd: l.etd || null,
-        site: l.site || null,
+        bill_to: l.bill_to ?? l.site ?? null,
+        ship_to: l.ship_to ?? null,
+        site: l.bill_to ?? l.site ?? null,
       }))
     );
     if (lineErr) {
@@ -211,13 +218,14 @@ export type SendPoState = { error: string | null; ok: boolean };
 export async function updatePoLineDetails(
   lineId: string,
   etd: string | null,
-  site: string | null
+  billTo: string | null,
+  shipTo: string | null
 ): Promise<SendPoState> {
   const me = await requireRole("buyer");
   const supabase = await createClient();
   if (!lineId) return { error: "Missing line.", ok: false };
-  if (site && !isKnownSite(site))
-    return { error: `Unknown delivery site: ${site}.`, ok: false };
+  if (billTo && !isKnownBillTo(billTo))
+    return { error: `Unknown bill-to location: ${billTo}.`, ok: false };
 
   const { data: line, error: readErr } = await supabase
     .from("po_line")
@@ -243,7 +251,12 @@ export async function updatePoLineDetails(
 
   const { error } = await supabase
     .from("po_line")
-    .update({ etd: etd || null, site: site || null })
+    .update({
+      etd: etd || null,
+      bill_to: billTo || null,
+      ship_to: shipTo || null,
+      site: billTo || null,
+    })
     .eq("id", lineId);
   if (error) return { error: error.message, ok: false };
 
@@ -262,7 +275,12 @@ export async function updatePoLineDetails(
  * tells the buyer how much work is left, which "set the ETD" does not.
  */
 function readyToSend(
-  lines: { supplier: string | null; etd: string | null; site: string | null }[]
+  lines: {
+    supplier: string | null;
+    etd: string | null;
+    bill_to: string | null;
+    ship_to: string | null;
+  }[]
 ): string | null {
   if (lines.length === 0) return "This PO has no lines.";
 
@@ -277,9 +295,13 @@ function readyToSend(
   if (noEtd)
     return `Set the ETD on every line — ${noEtd} of ${lines.length} still have none.`;
 
-  const noSite = missing((l) => l.site);
-  if (noSite)
-    return `Set the delivery site on every line — ${noSite} of ${lines.length} still have none.`;
+  const noBillTo = missing((l) => l.bill_to);
+  if (noBillTo)
+    return `Set the bill-to on every line — ${noBillTo} of ${lines.length} still have none.`;
+
+  const noShipTo = missing((l) => l.ship_to);
+  if (noShipTo)
+    return `Set the ship-to on every line — ${noShipTo} of ${lines.length} still have none.`;
 
   return null;
 }
@@ -300,7 +322,7 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
   const { data: poRows, error: readErr } = await supabase
     .from("po")
     .select(
-      "id, status, created_by, rm_sheet_id, po_line(id, supplier, etd, site)"
+      "id, status, created_by, rm_sheet_id, po_line(id, supplier, etd, bill_to, ship_to, site)"
     )
     .eq("id", poId)
     .limit(1);
@@ -317,6 +339,8 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
       id: string;
       supplier: string | null;
       etd: string | null;
+      bill_to: string | null;
+      ship_to: string | null;
       site: string | null;
     }[]) ?? [];
   const problem = readyToSend(lines);

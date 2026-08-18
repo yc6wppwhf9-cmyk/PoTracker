@@ -1,24 +1,15 @@
 /**
- * Delivery sites a buyer can choose when raising a purchase order.
+ * Bill-to locations a buyer can choose when raising a purchase order.
  *
- * ─────────────────────────────────────────────────────────────────────────
- *  EDIT THIS LIST to match your sites. It is the only place they are defined.
- * ─────────────────────────────────────────────────────────────────────────
- *
- * A fixed list was chosen over a database table deliberately: the names change
- * rarely, and a typed-in site would make grouping deliveries by site
- * unreliable. If they start changing often, this becomes a `site` table with an
- * admin screen, and only this file's readers need to change.
- *
- * Removing a site does not affect POs already raised against it — `po.site` is
- * free text, so historic orders keep the name they were saved with.
+ * The dropdown is intentionally fixed so the document can be matched to a
+ * known legal address without free-form typos.
  */
-export const SITES: readonly string[] = [
-  "High Spirit Commercial Ventures Pvt Ltd - Bhiwandi",
+export const BILL_TO_SITES: readonly string[] = [
   "High Spirit Commercial Ventures Pvt Ltd - Muzaffarpur",
-  "High Spirit Commercial Ventures Pvt Ltd - Muzaffarpur II",
-  "High Spirit Commercial Ventures Pvt Ltd - Patna",
+  "High Spirit Commercial Ventures Pvt Ltd - Bhiwandi",
 ] as const;
+
+export const SITES = BILL_TO_SITES;
 
 /**
  * The distinguishing part of a site name, for tables where the full legal name
@@ -30,7 +21,12 @@ export function shortSite(site: string | null | undefined): string {
   return dash === -1 ? site : site.slice(dash + 3);
 }
 
-/** True when a site is one this list still offers. */
+/** True when a bill-to value is one this list still offers. */
+export function isKnownBillTo(value: string | null | undefined): boolean {
+  return !!value && BILL_TO_SITES.includes(value);
+}
+
+/** Backwards-compatible alias for older code paths still using the previous name. */
 export function isKnownSite(value: string | null | undefined): boolean {
-  return !!value && SITES.includes(value);
+  return isKnownBillTo(value);
 }
