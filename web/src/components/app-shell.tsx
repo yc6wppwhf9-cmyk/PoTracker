@@ -322,9 +322,12 @@ export function AppShell({
       )}
 
       {/* Main Container */}
-      <div className="mx-auto flex max-w-[112rem] gap-8 px-4 py-8 sm:px-6">
-        {/* Desktop Sidebar */}
-        <nav className="hidden w-56 shrink-0 md:block">
+      <div className="mx-auto flex max-w-[112rem] gap-5 px-4 py-8 sm:px-6">
+        {/* Desktop Sidebar. Narrower than it was (w-56) — the wide procurement
+            tables need every bit of width they can get. w-48 rather than
+            narrower still: "MR Sheets to Approve" is the longest label, and
+            anything tighter wraps it across two lines. */}
+        <nav className="hidden w-48 shrink-0 md:block">
           <div className="sticky top-20 rounded-2xl glass-card p-3">
             <div className="mb-2 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Navigation
