@@ -352,6 +352,25 @@ export function PoForm({
             buyer types supplier and rate against a line they cannot identify. */}
         <div className="max-h-[70vh] overflow-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
           <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+            {/* table-fixed needs explicit column widths or every column
+                (including free-text inputs like Supplier and Ship to) gets
+                squeezed to an equal share regardless of content. */}
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-56" />
+              <col className="w-20" />
+              <col className="w-24" />
+              <col className="w-28" />
+              <col className="w-36" />
+              <col className="w-48" />
+              <col className="w-44" />
+              <col className="w-52" />
+              <col className="w-48" />
+              <col className="w-28" />
+              <col className="w-28" />
+              <col className="w-48" />
+              <col className="w-10" />
+            </colgroup>
             <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
               <tr>
                 <th className={`${thBase} sticky left-0 z-30`}></th>
