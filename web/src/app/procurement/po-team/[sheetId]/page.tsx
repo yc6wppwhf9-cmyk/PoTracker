@@ -17,6 +17,8 @@ type PoLine = {
   rate: number | null;
   remark: string | null;
   etd: string | null;
+  bill_to: string | null;
+  ship_to: string | null;
   site: string | null;
   item_master: { name?: string } | null;
 };
@@ -52,7 +54,7 @@ export default async function PoTeamSheetPage({
   const { data: pos } = await supabase
     .from("po")
     .select(
-      "id, status, doc_path, created_at, created_by, etd, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, etd, site, item_master(name))"
+      "id, status, doc_path, created_at, created_by, etd, bill_to, ship_to, site, po_number, po_line(id, item_code, lot, location, ordered_qty, supplier, rate, remark, etd, bill_to, ship_to, site, item_master(name))"
     )
     .eq("rm_sheet_id", sheetId)
     // Drafts belong to the buyer until they press Send. Showing them here would
@@ -170,7 +172,9 @@ export default async function PoTeamSheetPage({
                     rate: l.rate == null ? null : Number(l.rate),
                     remark: l.remark,
                     etd: l.etd ?? p.etd ?? null,
-                    site: l.site ?? p.site ?? null,
+                    bill_to: l.bill_to ?? p.bill_to ?? l.site ?? p.site ?? null,
+                    ship_to: l.ship_to ?? p.ship_to ?? null,
+                    site: l.bill_to ?? p.bill_to ?? l.site ?? p.site ?? null,
                   }))}
                 />
               </details>

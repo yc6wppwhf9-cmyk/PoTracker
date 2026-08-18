@@ -351,13 +351,13 @@ export function PoForm({
             WHICH material this is are pinned; scrolled right without them a
             buyer types supplier and rate against a line they cannot identify. */}
         <div className="max-h-[70vh] overflow-auto rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
-          <table className="w-full border-separate border-spacing-0 text-sm">
+          <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
               <tr>
                 <th className={`${thBase} sticky left-0 z-30`}></th>
                 <th className={`${thBase} sticky left-10 z-30 border-r`}>Item</th>
                 {["Lot", "Category", "MR qty", "Order qty", "Supplier",
-                  "ETD", "Delivery site", "Rate", "Value", "Purchase remark",
+                  "ETD", "Bill to", "Ship to", "Rate", "Value", "Purchase remark",
                   ""].map((h, i) => (
                   <th key={h || `blank${i}`} className={thBase}>
                     {h}
@@ -632,7 +632,7 @@ export function PoForm({
           )}
           {missingWhen > 0 && (
             <>
-              {missingWhen} line(s) still need an ETD and delivery site; both are
+              {missingWhen} line(s) still need an ETD, bill-to and ship-to; all are
               required before the PO can be sent to the PO team.
             </>
           )}

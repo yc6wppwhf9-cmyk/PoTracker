@@ -117,9 +117,9 @@ export function LineDeliveryFields({
         />
       </td>
       {error && (
-        <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+        <td colSpan={3} className="px-3 py-1 text-left text-xs text-rose-600 dark:text-rose-400">
           {error}
-        </div>
+        </td>
       )}
     </>
   );

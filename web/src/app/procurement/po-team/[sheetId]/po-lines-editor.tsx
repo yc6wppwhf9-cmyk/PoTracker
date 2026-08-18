@@ -19,10 +19,11 @@ export type EditableLine = {
   supplier: string | null;
   rate: number | null;
   remark: string | null;
-  /** Set by the buyer per line — one order can ship to two sites on two
-   *  dates. Falls back to the PO's own values for orders raised before they
-   *  moved down onto the line. */
+  /** Set by the buyer per line — one order can ship to two addresses on two
+   *  dates. Falls back to the PO's own values for older records. */
   etd: string | null;
+  bill_to: string | null;
+  ship_to: string | null;
   site: string | null;
 };
 
@@ -40,7 +41,8 @@ export function PoLinesEditor({ lines }: { lines: EditableLine[] }) {
               <th className="px-3 py-2 font-medium">Lot</th>
               <th className="px-3 py-2 font-medium">PO qty</th>
               <th className="px-3 py-2 font-medium">ETD</th>
-              <th className="px-3 py-2 font-medium">Delivery site</th>
+              <th className="px-3 py-2 font-medium">Bill to</th>
+              <th className="px-3 py-2 font-medium">Ship to</th>
               <th className="px-3 py-2 font-medium">Supplier</th>
               <th className="px-3 py-2 font-medium">Rate</th>
               <th className="px-3 py-2 font-medium">Value</th>
@@ -67,7 +69,10 @@ export function PoLinesEditor({ lines }: { lines: EditableLine[] }) {
                     {l.etd ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
-                    {l.site ? shortSite(l.site) : "—"}
+                    {l.bill_to ?? l.site ? shortSite(l.bill_to ?? l.site ?? "") : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
+                    {l.ship_to ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
                     {l.supplier ?? "—"}
