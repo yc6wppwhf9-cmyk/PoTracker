@@ -377,6 +377,141 @@ def export_grn_register(user: CurrentUser = Depends(get_current_user)):
     )
 
 
+@router.get("/rm-sheets/{sheet_id}/buyer-assignments.xlsx")
+def export_buyer_assignments(
+    sheet_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """This buyer's own assigned lines on one sheet, as a fill-in template.
+
+    INV carries the item code — the identifier a buyer's own paperwork
+    actually uses — alongside what the drafting screen already shows
+    (required, ordered, drafted, to buy), plus blank supplier/ETD/site
+    columns so the sheet can be filled in offline and matched back
+    against the web form line by line.
+    """
+    require_roles(user, "buyer", "purchase_head")
+    limit_exports(user.id)
+
+    sheet_res = (
+        user.client.table("rm_sheet")
+        .select("id, style_ref")
+        .eq("id", sheet_id)
+        .limit(1)
+        .execute()
+    )
+    if not sheet_res.data:
+        raise HTTPException(404, "RM sheet not found.")
+    sheet = sheet_res.data[0]
+    style_ref = sheet.get("style_ref") or sheet_id[:8]
+
+    rows = fetch_all(
+        lambda: user.client.table("rm_requirement")
+        .select(
+            "item_code, lot, location, department, required_qty, "
+            "item_master(name, category)"
+        )
+        .eq("rm_sheet_id", sheet_id)
+        .eq("assigned_buyer", user.id)
+        .not_.is_("item_code", "null"),
+        order_by="id",
+    )
+    if not rows:
+        raise HTTPException(
+            422, "Nothing to export — no items are assigned to you on this sheet."
+        )
+
+    # Already on a PO for this sheet, per (item_code, lot, location) — the
+    # same figure the drafting screen uses, so "to buy" here matches what it
+    # shows rather than the original requirement.
+    recon = fetch_all(
+        lambda: user.client.table("reconciliation")
+        .select("item_code, lot, location, ordered, drafted")
+        .eq("rm_sheet_id", sheet_id),
+        order_by=("item_code", "lot", "location"),
+    )
+    covered: dict[tuple, tuple[float, float]] = {
+        (r.get("item_code"), r.get("lot"), r.get("location")): (
+            _num(r.get("ordered")),
+            _num(r.get("drafted")),
+        )
+        for r in recon
+    }
+
+    agg: dict[tuple, dict[str, Any]] = {}
+    for r in rows:
+        key = (r.get("item_code"), r.get("lot"), r.get("location"))
+        im = r.get("item_master") or {}
+        if isinstance(im, list):
+            im = im[0] if im else {}
+        cur = agg.setdefault(
+            key,
+            {
+                "item_code": r.get("item_code"),
+                "name": im.get("name") or r.get("item_code"),
+                "category": im.get("category") or "—",
+                "department": r.get("department") or "—",
+                "lot": r.get("lot"),
+                "required": 0.0,
+            },
+        )
+        cur["required"] += _num(r.get("required_qty"))
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Your assignments"
+    ws["A1"] = f"Your assignments — {style_ref}"
+    ws["A1"].font = TITLE_FONT
+    ws["A2"] = (
+        "Generated "
+        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} by {user.email or user.id}"
+    )
+    ws["A2"].font = Font(size=9, color="6B7280")
+
+    headers = [
+        "INV", "Item name", "Lot", "Category", "Department",
+        "Required", "Ordered", "Drafted", "To buy",
+        "Supplier", "ETD", "Delivery site",
+    ]
+    _write_header(ws, headers, row=4)
+
+    row_i = 5
+    for key, r in sorted(
+        agg.items(), key=lambda kv: (kv[1]["item_code"] or "", kv[1]["lot"] or "")
+    ):
+        ordered, drafted = covered.get(key, (0.0, 0.0))
+        to_buy = max(0.0, r["required"] - ordered - drafted)
+        values = [
+            r["item_code"], r["name"], r["lot"], r["category"], r["department"],
+            round(r["required"], 2), ordered, drafted, round(to_buy, 2),
+            None, None, None,
+        ]
+        for c, v in enumerate(values, start=1):
+            cell = ws.cell(row=row_i, column=c, value=v)
+            if c in (6, 7, 8, 9):
+                cell.number_format = "#,##0.00"
+        row_i += 1
+
+    _autosize(ws, {1: 14, 2: 34, 3: 12, 4: 16, 5: 14, 10: 20, 11: 14, 12: 18})
+    ws.freeze_panes = ws.cell(row=5, column=1)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"your-assignments-{style_ref}.xlsx".replace(" ", "-")
+    return StreamingResponse(
+        buf,
+        media_type=XLSX_MEDIA,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
+
+
 @router.get("/approved-pos.xlsx")
 def export_approved_pos(user: CurrentUser = Depends(get_current_user)):
     """Every purchase order the approver has signed off, with when.
