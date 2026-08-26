@@ -14,7 +14,16 @@ import { DownloadButton } from "@/app/procurement/approver/download-button";
  * The approver is final here — the MD sees only what is escalated — so this is
  * the decision point for an order, not a step towards one.
  */
-export function PoList({ pos }: { pos: PoApproval[] }) {
+export function PoList({
+  pos,
+  readOnly = false,
+}: {
+  pos: PoApproval[];
+  /** PO team can see approval status but not act on it — only the approver
+   *  decides. Hides the Approve/Escalate buttons; the actions themselves are
+   *  still enforced server-side regardless. */
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<"pending" | "approved">("pending");
   const [query, setQuery] = useState("");
@@ -237,7 +246,7 @@ export function PoList({ pos }: { pos: PoApproval[] }) {
                     )}
                   </div>
 
-                  {p.approvalStatus !== "approved" && (
+                  {!readOnly && p.approvalStatus !== "approved" && (
                     <div className="flex items-center gap-2">
                       <button
                         type="button"

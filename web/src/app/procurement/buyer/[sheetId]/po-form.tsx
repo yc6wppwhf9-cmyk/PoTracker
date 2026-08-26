@@ -244,15 +244,16 @@ export function PoForm({
   // default so a sheet of thousands shows only the work remaining.
   const done = items.filter((it) => outstanding(it) <= 0).length;
 
-  // Search across the columns that identify a line — name, code, category and
-  // lot — so a buyer working a long sheet can jump to one item without
-  // scrolling the whole register.
+  // Search across the columns that identify a line — name, code, category,
+  // channel and lot — so a buyer working a long sheet can jump to one item
+  // without scrolling the whole register.
   const q = search.trim().toLowerCase();
   const matchesSearch = (it: AssignedItem) =>
     q === "" ||
     it.name.toLowerCase().includes(q) ||
     it.item_code.toLowerCase().includes(q) ||
     it.category.toLowerCase().includes(q) ||
+    it.channel.toLowerCase().includes(q) ||
     (it.lot ?? "").toLowerCase().includes(q);
 
   const visibleItems = items.filter(
@@ -296,7 +297,7 @@ export function PoForm({
                 setSearch(e.target.value);
                 setPageIndex(0);
               }}
-              placeholder="Search item, code, category or lot…"
+              placeholder="Search item, code, category, channel or lot…"
               className="w-72 max-w-full rounded-md border border-black/10 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/15 dark:bg-neutral-950"
             />
             <svg
@@ -360,6 +361,10 @@ export function PoForm({
               <col className="w-56" />
               <col className="w-20" />
               <col className="w-24" />
+              <col className="w-24" />
+              <col className="w-20" />
+              <col className="w-20" />
+              <col className="w-20" />
               <col className="w-28" />
               <col className="w-36" />
               <col className="w-48" />
@@ -375,7 +380,7 @@ export function PoForm({
               <tr>
                 <th className={`${thBase} sticky left-0 z-30`}></th>
                 <th className={`${thBase} sticky left-10 z-30 border-r`}>Item</th>
-                {["Lot", "Category", "MR qty", "Order qty", "Supplier",
+                {["Lot", "Category", "Channel", "Total", "SOH", "Pending", "MR qty", "Order qty", "Supplier",
                   "ETD", "Bill to", "Ship to", "Rate", "Value", "Purchase remark",
                   ""].map((h, i) => (
                   <th key={h || `blank${i}`} className={thBase}>
@@ -457,6 +462,18 @@ export function PoForm({
                       </td>
                       <td className={`${tdBase} whitespace-nowrap text-neutral-500`}>
                         {first ? it.category : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-neutral-500`}>
+                        {first ? it.channel : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-500`}>
+                        {first ? it.total_qty.toLocaleString() : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-500`}>
+                        {first ? it.soh.toLocaleString() : ""}
+                      </td>
+                      <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-500`}>
+                        {first ? it.pending_qty.toLocaleString() : ""}
                       </td>
                       <td className={`${tdBase} whitespace-nowrap text-right tabular-nums text-neutral-500`}>
                         {first ? outstanding(it).toLocaleString() : ""}

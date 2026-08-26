@@ -31,7 +31,7 @@ export default async function AssignSheetPage({
   const lines = await fetchAll((from, to) =>
     supabase
       .from("rm_requirement")
-      .select("id, item_code, raw_label, required_qty, assigned_buyer, needs_review, item_master(name, category)")
+      .select("id, item_code, raw_label, required_qty, assigned_buyer, needs_review, channel, item_master(name, category)")
       .eq("rm_sheet_id", sheetId)
       .order("id")
       .range(from, to)
@@ -63,6 +63,7 @@ export default async function AssignSheetPage({
     lines: number;
     totalQty: number;
     buyers: Set<string | null>;
+    channels: Set<string>;
   };
   const invMap = new Map<string, InvAcc>();
 
@@ -96,12 +97,14 @@ export default async function AssignSheetPage({
           lines: 0,
           totalQty: 0,
           buyers: new Set(),
+          channels: new Set(),
         });
       }
       const ig = invMap.get(code)!;
       ig.lines += 1;
       ig.totalQty += Number(l.required_qty) || 0;
       ig.buyers.add(l.assigned_buyer ?? null);
+      ig.channels.add((l.channel as string | null) ?? "—");
     }
   }
 
@@ -127,6 +130,7 @@ export default async function AssignSheetPage({
       itemCode: ig.itemCode,
       name: ig.name,
       category: ig.category,
+      channel: ig.channels.size === 1 ? [...ig.channels][0] : "Mixed",
       lines: ig.lines,
       totalQty: Math.round(ig.totalQty * 100) / 100,
       currentBuyerId: ig.buyers.size === 1 ? [...ig.buyers][0] : null,

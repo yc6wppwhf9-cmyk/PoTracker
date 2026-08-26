@@ -5,7 +5,16 @@ export type AssignedItem = {
   name: string;
   category: string;
   department: string;
+  channel: string;
   required_qty: number;
+  /** TOTAL_COMPONENT_QUANTITY (or equivalent) from the source sheet — kept
+   *  independently of required_qty, which is whichever of total/pending the
+   *  sheet offered. */
+  total_qty: number;
+  /** Stock on hand at the time the sheet was uploaded. */
+  soh: number;
+  /** PENDING_COMPONENT_TO_ISSUE (or equivalent) from the source sheet. */
+  pending_qty: number;
   /** Already on a PO that has been sent. */
   ordered_qty: number;
   /** Already on a draft PO, sent or not. Counts against the requirement here

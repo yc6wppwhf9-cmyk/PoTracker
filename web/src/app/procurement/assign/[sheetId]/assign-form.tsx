@@ -26,6 +26,7 @@ export type InvItemGroup = {
   itemCode: string;
   name: string;
   category: string;
+  channel: string;
   lines: number;
   totalQty: number;
   currentBuyerId: string | null;
@@ -110,7 +111,8 @@ export function AssignForm({
       (g) =>
         g.itemCode.toLowerCase().includes(q) ||
         g.name.toLowerCase().includes(q) ||
-        g.category.toLowerCase().includes(q)
+        g.category.toLowerCase().includes(q) ||
+        g.channel.toLowerCase().includes(q)
     );
   }, [invGroups, searchQuery]);
 
@@ -272,6 +274,7 @@ export function AssignForm({
                 <th className="px-4 py-3 font-medium">INV Item Code</th>
                 <th className="px-4 py-3 font-medium">Item Description</th>
                 <th className="px-4 py-3 font-medium">Category</th>
+                <th className="px-4 py-3 font-medium">Channel</th>
                 <th className="px-4 py-3 font-medium">Lines</th>
                 <th className="px-4 py-3 font-medium">Total qty</th>
                 <th className="px-4 py-3 font-medium">Assigned Buyer</th>
@@ -292,6 +295,7 @@ export function AssignForm({
                   <td className="px-4 py-3 font-medium text-slate-500 capitalize">
                     {g.category}
                   </td>
+                  <td className="px-4 py-3 text-neutral-500">{g.channel}</td>
                   <td className="px-4 py-3 text-neutral-500">{g.lines}</td>
                   <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
                     {g.totalQty.toLocaleString()}
@@ -319,7 +323,7 @@ export function AssignForm({
               ))}
               {filteredInvGroups.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                     No INV item codes found matching &quot;{searchQuery}&quot;.
                   </td>
                 </tr>

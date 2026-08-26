@@ -43,6 +43,16 @@ router = APIRouter(prefix="/notify", tags=["notify"])
 
 RESEND_URL = "https://api.resend.com/emails"
 
+# Some buyers' PO-team traffic is routed to one named focal point instead of
+# the whole po_team role — Sarika handles Ashish's and Shilpi's orders,
+# Bharti handles Chandan's. Keyed by the buyer's email (lowercased) rather
+# than their id, since that is what was given and is stable across re-invites.
+PO_TEAM_OVERRIDE_BY_BUYER: dict[str, str] = {
+    "ashish.tibrewala@hscvpl.com": "sarika.ahire@hscvpl.com",
+    "shilpi.jain@hscvpl.com": "sarika.ahire@hscvpl.com",
+    "chandan.choudhary@hscvpl.com": "bharti.jadhav@hscvpl.com",
+}
+
 
 def app_url(path: str) -> str:
     return f"{get_settings().app_url.rstrip('/')}{path}"
@@ -346,6 +356,9 @@ def notify_po_drafted(
     Only the PO team. The buyer is the one who pressed send, so mailing them
     about it is telling someone what they just did — and with one PO per
     supplier, a sheet would produce a dozen such mails in a minute.
+
+    Ashish's, Shilpi's and Chandan's POs go to one named person instead of the
+    whole role — see PO_TEAM_OVERRIDE_BY_BUYER.
     """
     require_roles(user, "buyer")
     limit_notify(user.id)
@@ -380,8 +393,14 @@ def notify_po_drafted(
         f"deliver to {html.escape(str(row.get('site') or 'not set'))}</p>"
     )
 
+    # A few buyers' POs go to one named focal point instead of the whole
+    # po_team role — see PO_TEAM_OVERRIDE_BY_BUYER.
+    buyer_email = email_of(user.client, row.get("created_by")) if row.get("created_by") else None
+    override_to = PO_TEAM_OVERRIDE_BY_BUYER.get((buyer_email or "").strip().lower())
+    recipients = [override_to] if override_to else emails_with_role(user.client, "po_team")
+
     to_team = send_email(
-        emails_with_role(user.client, "po_team"),
+        recipients,
         f"New PO to process — {supplier} · {sheet.get('style_ref') or sheet_id[:8]}",
         f"<p>A buyer has sent a purchase order on <strong>{ref}</strong>.</p>"
         + detail

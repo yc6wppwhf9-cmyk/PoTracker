@@ -64,10 +64,17 @@ class ParsedRow:
     raw_unit: Optional[str] = None
     lot: Optional[str] = None
     department: Optional[str] = None
+    channel: Optional[str] = None
     color: Optional[str] = None
     location: Optional[str] = None
     po: Optional[str] = None
     remarks: Optional[str] = None
+    # The three source quantity columns, kept independently of required_qty
+    # (which is whichever of pending/total was chosen to buy against) so a
+    # buyer can see the breakdown the sheet actually showed.
+    total_qty: Optional[float] = None
+    soh: Optional[float] = None
+    pending_qty: Optional[float] = None
     raw_row: dict[str, Any] = field(default_factory=dict)
 
 
@@ -224,6 +231,9 @@ def _parse_worksheet(ws) -> tuple[list[ParsedRow], int, Optional[str]]:
             v = cell(row, f)
             return str(v).strip() if v is not None and str(v).strip() != "" else None
 
+        def num(f: str) -> Optional[float]:
+            return _to_number(cell(row, f))
+
         rows.append(
             ParsedRow(
                 row_number=i,
@@ -233,10 +243,14 @@ def _parse_worksheet(ws) -> tuple[list[ParsedRow], int, Optional[str]]:
                 raw_unit=txt("unit"),
                 lot=txt("lot"),
                 department=txt("department"),
+                channel=txt("channel"),
                 color=txt("color"),
                 location=ws.title,  # tab = plant / product line
                 po=txt("po"),
                 remarks=txt("remark"),
+                total_qty=num("total_qty"),
+                soh=num("soh"),
+                pending_qty=num("pending_qty"),
                 raw_row=raw_row,
             )
         )

@@ -69,7 +69,7 @@ export default async function BuyerSheetPage({
   const linesQuery = fetchAll((from, to) =>
     supabase
       .from("rm_requirement")
-      .select("item_code, lot, location, required_qty, department, item_master(name, category)")
+      .select("item_code, lot, location, required_qty, department, channel, total_qty, soh, pending_qty, item_master(name, category)")
       .eq("rm_sheet_id", sheetId)
       .eq("assigned_buyer", profile.userId)
       .not("item_code", "is", null)
@@ -158,11 +158,18 @@ export default async function BuyerSheetPage({
         name: im?.name ?? code,
         category: im?.category ?? "—",
         department: (l.department as string | null) ?? "—",
+        channel: (l.channel as string | null) ?? "—",
         required_qty: 0,
+        total_qty: 0,
+        soh: 0,
+        pending_qty: 0,
         ordered_qty: coveredBy.get(key)?.ordered ?? 0,
         drafted_qty: coveredBy.get(key)?.drafted ?? 0,
       } as AssignedItem);
     cur.required_qty += Number(l.required_qty) || 0;
+    cur.total_qty += Number(l.total_qty) || 0;
+    cur.soh += Number(l.soh) || 0;
+    cur.pending_qty += Number(l.pending_qty) || 0;
     agg.set(key, cur);
   }
   const items = [...agg.values()].sort(

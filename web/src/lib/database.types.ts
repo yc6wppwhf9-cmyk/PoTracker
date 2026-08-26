@@ -421,6 +421,41 @@ export type Database = {
           },
         ]
       }
+      po_document: {
+        Row: {
+          created_at: string
+          doc_path: string
+          filename: string | null
+          id: string
+          po_id: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          doc_path: string
+          filename?: string | null
+          id?: string
+          po_id: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          doc_path?: string
+          filename?: string | null
+          id?: string
+          po_id?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "po_document_po_id_fkey"
+            columns: ["po_id"]
+            isOneToOne: false
+            referencedRelation: "po"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -448,6 +483,7 @@ export type Database = {
       rm_requirement: {
         Row: {
           assigned_buyer: string | null
+          channel: string | null
           color: string | null
           created_at: string
           department: string | null
@@ -459,13 +495,17 @@ export type Database = {
           needs_review: boolean
           raw_code: string | null
           raw_label: string | null
+          pending_qty: number | null
           raw_row: Json | null
           raw_unit: string | null
           required_qty: number
           rm_sheet_id: string
+          soh: number | null
+          total_qty: number | null
         }
         Insert: {
           assigned_buyer?: string | null
+          channel?: string | null
           color?: string | null
           created_at?: string
           department?: string | null
@@ -477,13 +517,17 @@ export type Database = {
           needs_review?: boolean
           raw_code?: string | null
           raw_label?: string | null
+          pending_qty?: number | null
           raw_row?: Json | null
           raw_unit?: string | null
           required_qty: number
           rm_sheet_id: string
+          soh?: number | null
+          total_qty?: number | null
         }
         Update: {
           assigned_buyer?: string | null
+          channel?: string | null
           color?: string | null
           created_at?: string
           department?: string | null
@@ -495,10 +539,13 @@ export type Database = {
           needs_review?: boolean
           raw_code?: string | null
           raw_label?: string | null
+          pending_qty?: number | null
           raw_row?: Json | null
           raw_unit?: string | null
           required_qty?: number
           rm_sheet_id?: string
+          soh?: number | null
+          total_qty?: number | null
         }
         Relationships: [
           {

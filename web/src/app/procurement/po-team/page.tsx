@@ -1,8 +1,10 @@
-import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { fetchAll } from "@/lib/supabase/fetch-all";
+import { getPoApprovals } from "@/lib/po-approvals";
+import { PoList } from "@/app/procurement/po-approvals/po-list";
+import { SheetTable } from "./sheet-table";
 
 export default async function PoTeamHome() {
   const profile = await requireRole("po_team");
@@ -40,7 +42,19 @@ export default async function PoTeamHome() {
   // buyers have not sent anything appeared with 0 POs and an Open button
   // leading to an empty page. This screen is a queue: a row on it should mean
   // there is something to attach.
-  const withWork = (sheets ?? []).filter((s) => (poCountBySheet.get(s.id) ?? 0) > 0);
+  const withWork = (sheets ?? [])
+    .filter((s) => (poCountBySheet.get(s.id) ?? 0) > 0)
+    .map((s) => ({
+      id: s.id,
+      style_ref: s.style_ref,
+      status: s.status,
+      poCount: poCountBySheet.get(s.id) ?? 0,
+    }));
+
+  // Read-only view of the approver's decision — the PO team cannot approve or
+  // escalate, but knowing which of their POs are still pending vs already
+  // approved tells them what is safe to consider final.
+  const approvals = await getPoApprovals();
 
   return (
     <AppShell profile={profile}>
@@ -50,54 +64,17 @@ export default async function PoTeamHome() {
         finalised PO documents.
       </p>
 
-      <div className="mt-6 overflow-hidden rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-neutral-900">
-        <table className="w-full text-sm">
-          <thead className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-white/10">
-            <tr>
-              <th className="px-4 py-3 font-medium">Sheet</th>
-              <th className="px-4 py-3 font-medium">POs</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {withWork.map((s) => {
-              const poCount = poCountBySheet.get(s.id) ?? 0;
-              return (
-                <tr
-                  key={s.id}
-                  className="border-b border-black/5 last:border-0 dark:border-white/5"
-                >
-                  <td className="px-4 py-3 font-medium">
-                    {s.style_ref ?? `Sheet ${s.id.slice(0, 8)}`}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-500">{poCount}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800">
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/procurement/po-team/${s.id}`}
-                      className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900"
-                    >
-                      Open
-                    </Link>
-                  </td>
-                </tr>
-              );
-            })}
-            {withWork.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-neutral-500">
-                  Nothing to do — no buyer has sent you a purchase order yet.
-                  Sheets appear here once one does.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <SheetTable sheets={withWork} />
+
+      <h2 className="mt-10 text-lg font-semibold tracking-tight">
+        PO approval status
+      </h2>
+      <p className="mt-1 text-neutral-500">
+        Where each PO stands with the approver. This is view-only — approving
+        or escalating happens on the approver's own screen.
+      </p>
+      <div className="mt-3">
+        <PoList pos={approvals} readOnly />
       </div>
     </AppShell>
   );

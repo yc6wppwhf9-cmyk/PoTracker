@@ -408,7 +408,7 @@ def export_buyer_assignments(
     rows = fetch_all(
         lambda: user.client.table("rm_requirement")
         .select(
-            "item_code, lot, location, department, required_qty, "
+            "item_code, lot, location, department, channel, required_qty, "
             "item_master(name, category)"
         )
         .eq("rm_sheet_id", sheet_id)
@@ -451,6 +451,7 @@ def export_buyer_assignments(
                 "name": im.get("name") or r.get("item_code"),
                 "category": im.get("category") or "—",
                 "department": r.get("department") or "—",
+                "channel": r.get("channel") or "—",
                 "lot": r.get("lot"),
                 "required": 0.0,
             },
@@ -469,7 +470,7 @@ def export_buyer_assignments(
     ws["A2"].font = Font(size=9, color="6B7280")
 
     headers = [
-        "INV", "Item name", "Lot", "Category", "Department",
+        "INV", "Item name", "Lot", "Category", "Department", "Channel",
         "Required", "Ordered", "Drafted", "To buy",
         "Supplier", "ETD", "Delivery site",
     ]
@@ -483,16 +484,17 @@ def export_buyer_assignments(
         to_buy = max(0.0, r["required"] - ordered - drafted)
         values = [
             r["item_code"], r["name"], r["lot"], r["category"], r["department"],
+            r["channel"],
             round(r["required"], 2), ordered, drafted, round(to_buy, 2),
             None, None, None,
         ]
         for c, v in enumerate(values, start=1):
             cell = ws.cell(row=row_i, column=c, value=v)
-            if c in (6, 7, 8, 9):
+            if c in (7, 8, 9, 10):
                 cell.number_format = "#,##0.00"
         row_i += 1
 
-    _autosize(ws, {1: 14, 2: 34, 3: 12, 4: 16, 5: 14, 10: 20, 11: 14, 12: 18})
+    _autosize(ws, {1: 14, 2: 34, 3: 12, 4: 16, 5: 14, 6: 14, 11: 20, 12: 14, 13: 18})
     ws.freeze_panes = ws.cell(row=5, column=1)
 
     buf = io.BytesIO()

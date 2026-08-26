@@ -1,6 +1,5 @@
 import datetime
 import hashlib
-import re
 import uuid
 from typing import Any, Optional
 
@@ -138,21 +137,14 @@ def upload_rm_sheet(
     if not style_ref or not style_ref.strip():
         year_str = datetime.datetime.now().strftime("%Y")
         prefix = f"MR-{year_str}-"
-        seq_re = re.compile(rf"^{re.escape(prefix)}(\d+)$")
 
         try:
-            existing = (
-                user.client.table("rm_sheet")
-                .select("style_ref")
-                .ilike("style_ref", f"{prefix}%")
-                .execute()
-            )
-            max_seq = 0
-            for r in existing.data or []:
-                match = seq_re.match((r.get("style_ref") or "").strip())
-                if match:
-                    max_seq = max(max_seq, int(match.group(1)))
-            style_ref = f"{prefix}{max_seq + 1:03d}"
+            # SECURITY DEFINER: computed over every sheet, not just ones this
+            # caller's own RLS view happens to include — an uploader who
+            # cannot see other uploaders' sheets used to always be told "no
+            # sheets yet" and get handed a colliding MR-2026-001.
+            seq_result = user.client.rpc("next_mr_style_ref", {}).execute()
+            style_ref = seq_result.data
         except Exception as e:
             # Fall back to a unique-but-unordered reference rather than failing the
             # upload — but say so, so nobody assumes the sequence is intact.
@@ -287,7 +279,11 @@ def upload_rm_sheet(
                 "needs_review": needs_review,
                 "lot": pr.lot,
                 "department": pr.department,
+                "channel": pr.channel,
                 "color": pr.color,
+                "total_qty": pr.total_qty,
+                "soh": pr.soh,
+                "pending_qty": pr.pending_qty,
                 "location": pr.location,
                 "raw_row": pr.raw_row,
             }
