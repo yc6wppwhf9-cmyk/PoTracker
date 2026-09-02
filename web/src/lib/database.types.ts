@@ -256,6 +256,9 @@ export type Database = {
           material_type: string | null
           moq: number
           name: string
+          photo_path: string | null
+          stock_qty: number
+          stock_updated_at: string | null
         }
         Insert: {
           article_name?: string | null
@@ -267,6 +270,9 @@ export type Database = {
           material_type?: string | null
           moq?: number
           name: string
+          photo_path?: string | null
+          stock_qty?: number
+          stock_updated_at?: string | null
         }
         Update: {
           article_name?: string | null
@@ -278,6 +284,9 @@ export type Database = {
           material_type?: string | null
           moq?: number
           name?: string
+          photo_path?: string | null
+          stock_qty?: number
+          stock_updated_at?: string | null
         }
         Relationships: []
       }

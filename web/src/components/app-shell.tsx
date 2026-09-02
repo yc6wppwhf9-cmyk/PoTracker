@@ -135,6 +135,15 @@ function IconUsers({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
+function IconRmStock({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8v10a1 1 0 001 1h12a1 1 0 001-1V8M9 12h6" />
+    </svg>
+  );
+}
+
 function IconLogOut({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -145,6 +154,7 @@ function IconLogOut({ className = "h-3.5 w-3.5" }: { className?: string }) {
 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", roles: [], ready: true, icon: IconDashboard },
+  { href: "/rm-stock", label: "RM Stock", roles: [], ready: true, icon: IconRmStock },
   { href: "/procurement/upload", label: "Upload RM Sheet", roles: ["uploader"], ready: true, icon: IconUpload },
   { href: "/procurement/assign", label: "Assign Buyers", roles: ["purchase_head", "uploader"], ready: true, icon: IconAssign },
   { href: "/procurement/buyer", label: "Buyer Workspace", roles: ["buyer"], ready: true, icon: IconBuyer },
