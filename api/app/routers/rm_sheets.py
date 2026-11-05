@@ -1,6 +1,8 @@
 import datetime
 import hashlib
+import re
 import uuid
+from collections import Counter
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -22,6 +24,56 @@ def _explain_po_insert(e: Exception) -> str:
         return "a purchase order with that number already exists"
     return t[:200]
 
+# "Matty - Extra", "Aster (Extra)": an extra quantity of the same department's
+# material, listed separately on monthly requisition sheets.
+_EXTRA_SUFFIX = re.compile(r"\s*(?:[-\u2013]\s*extra|\(\s*extra\s*\))\s*$", re.IGNORECASE)
+
+
+def base_department(department: Optional[str]) -> str:
+    """The department a sheet line belongs to, without an "- Extra" suffix.
+
+    Used as the catalogue category of auto-registered items, which is what
+    buyer routing keys on — "Matty - Extra" must route to the Matty buyer, not
+    become a category of its own that nobody is assigned to.
+    """
+    return _EXTRA_SUFFIX.sub("", (department or "").strip()).strip()
+
+
+def units_by_category(catalogue: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """category (lower case) -> the base unit most of its catalogue items use."""
+    counts: dict[str, Counter] = {}
+    for it in catalogue.values():
+        cat, unit = (it.get("category") or "").strip().lower(), it.get("base_unit") or ""
+        if cat and unit:
+            counts.setdefault(cat, Counter())[unit] += 1
+    return {cat: c.most_common(1)[0][0] for cat, c in counts.items()}
+
+
+def new_sku_entry(
+    raw_code: str,
+    item_name: Optional[str],
+    department: str,
+    raw_unit: Optional[str],
+    unit_for_category: dict[str, str],
+) -> dict[str, Any]:
+    """Provisional catalogue entry for an item code the catalogue lacks.
+
+    When the sheet has no unit column, the unit is taken from the other items
+    of the same category rather than defaulting to pcs: fabric departments are
+    bought in metres, and a pcs base unit would make every later conversion and
+    MOQ check wrong.
+    """
+    category = base_department(department) or department.strip()
+    unit = (raw_unit or "").strip() or unit_for_category.get(category.lower()) or "pcs"
+    return {
+        "item_code": raw_code.strip(),
+        "name": (item_name or raw_code).strip(),
+        "category": category,
+        "base_unit": unit,
+        "moq": 0,
+    }
+
+
 XLSX_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel",
@@ -36,7 +88,7 @@ def _load_catalogue(user: CurrentUser):
     truncated, and every item past the cut would be treated as unknown.
     """
     items = fetch_all(
-        lambda: user.client.table("item_master").select("item_code, base_unit"),
+        lambda: user.client.table("item_master").select("item_code, base_unit, category"),
         order_by="item_code",
     )
     by_code: dict[str, dict[str, Any]] = {}
@@ -44,6 +96,7 @@ def _load_catalogue(user: CurrentUser):
         by_code[it["item_code"].strip().upper()] = {
             "item_code": it["item_code"],
             "base_unit": (it["base_unit"] or "").strip().lower(),
+            "category": it.get("category"),
         }
 
     factors: dict[tuple[str, str], float] = {}
@@ -203,19 +256,15 @@ def upload_rm_sheet(
 
     # Collect new SKUs for bulk auto-registration
     new_skus: dict[str, dict[str, Any]] = {}
+    unit_for_category = units_by_category(by_code)
     for pr in parsed.rows:
         if pr.required_qty is None:
             continue
         code_key = (pr.raw_code or "").strip().upper()
         if code_key and code_key not in by_code and pr.department and pr.department.strip():
-            raw_code = pr.raw_code.strip()
-            new_skus[code_key] = {
-                "item_code": raw_code,
-                "name": (pr.item_name or raw_code).strip(),
-                "category": pr.department.strip(),
-                "base_unit": pr.raw_unit or "pcs",
-                "moq": 0,
-            }
+            new_skus[code_key] = new_sku_entry(
+                pr.raw_code, pr.item_name, pr.department, pr.raw_unit, unit_for_category
+            )
 
     # Bulk upsert new SKUs into item_master in batches of 500. These are
     # provisional catalogue entries (moq 0, category taken from the sheet's

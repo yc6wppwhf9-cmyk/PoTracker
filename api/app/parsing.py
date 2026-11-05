@@ -294,8 +294,8 @@ def parse_rm_sheet(data: bytes) -> ParsedSheet:
             )
         raise ValueError(
             "No requirement rows found. Expected an item-code column (e.g. "
-            "'COMPONENT ICODE') and a quantity column (e.g. 'Pending' / "
-            "'TOTAL_COMPONENT_QUANTITY')."
+            "'COMPONENT ICODE' or 'RM INV') and a quantity column (e.g. "
+            "'Pending', 'Balance To Procure' or 'TOTAL_COMPONENT_QUANTITY')."
         )
 
     warnings.insert(0, "Parsed tabs: " + ", ".join(parsed_tabs))
