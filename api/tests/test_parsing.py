@@ -200,3 +200,31 @@ def test_raises_when_no_recognisable_columns():
     data = _workbook([["Alpha", "Beta"], ["x", "y"]])
     with pytest.raises(ValueError, match="No requirement rows found"):
         parse_rm_sheet(data)
+
+
+def test_parses_monthly_requisition_layout():
+    """Monthly requisition sheets: title rows above the header, 'RM INV' for the
+    code and 'Balance To Procure' for the quantity; blank balances are skipped."""
+    data = _workbook(
+        [
+            [None, None, None, None, None, None],
+            [None, None, None, None, None, None],
+            [None, None, None, None, "Dec", None],
+            ["RM Department", "RM INV", "RM Item Name", "Color", "Balance To Procure", "MD Comments"],
+            ["Matty", "INV29711", "FB PVC Bolt LVD", "LVD", 5079.507, "Buy from Nandi"],
+            ["Matty", "INV29713", "FB PVC Bolt LPNK", "LPNK", None, "630 Mtrs from Nandi"],
+            ["Matty", "INV31816", "FB PVC Bolt RBL", "RBL", 1610.716, None],
+        ],
+        title="Dec Requisition",
+    )
+    parsed = parse_rm_sheet(data)
+
+    assert [r.raw_code for r in parsed.rows] == ["INV29711", "INV31816"]
+    first = parsed.rows[0]
+    assert first.item_name == "FB PVC Bolt LVD"
+    assert first.required_qty == pytest.approx(5079.507)
+    assert first.pending_qty == pytest.approx(5079.507)
+    assert first.department == "Matty"
+    assert first.color == "LVD"
+    assert first.remarks == "Buy from Nandi"
+    assert parsed.skipped_rows == 1

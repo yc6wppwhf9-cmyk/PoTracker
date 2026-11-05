@@ -26,13 +26,19 @@ CODE_RE = re.compile(r"^[A-Za-z]{2,5}\d{2,}[A-Za-z0-9-]*$")
 # whitespace collapsed). Matched by exact (strong) or substring (weak); the
 # longest matching alias wins, so specific beats generic.
 ALIASES: dict[str, list[str]] = {
-    "item_code": ["component icode", "icode", "component code", "`", "'", "code", "item code", "sku"],
-    "item_name": ["component item name", "item name", "description", "particulars"],
+    "item_code": [
+        "component icode", "icode", "component code", "rm inv", "rm code", "rm icode",
+        "`", "'", "code", "item code", "sku",
+    ],
+    "item_name": ["component item name", "rm item name", "item name", "description", "particulars"],
     "pending_qty": [
         "pending component to issue",
         "pending to issue",
         "final pending",
         "to purchase",
+        # Monthly requisition sheets ("RM Department | RM INV | ... | Balance To Procure")
+        "balance to procure",
+        "to procure",
         "pending",
     ],
     "total_qty": [
@@ -43,9 +49,9 @@ ALIASES: dict[str, list[str]] = {
     ],
     "soh": ["soh component quantity", "soh", "stock on hand", "stock"],
     "lot": ["lot no", "lot"],
-    "department": ["department", "dept"],
+    "department": ["rm department", "department", "dept"],
     "channel": ["channel", "poc"],
-    "remark": ["remark from tj", "remarks", "remark"],
+    "remark": ["remark from tj", "md comments", "remarks", "remark", "comments"],
     # Native unit of the quantity column; converted to the catalogue base unit
     # later via uom_conversion.
     "unit": ["unit of measure", "uom", "unit", "units"],
