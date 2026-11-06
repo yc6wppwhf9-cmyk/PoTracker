@@ -44,6 +44,54 @@ type Alloc = {
 let seq = 0;
 const newId = () => `a${++seq}`;
 
+function freshAlloc(it: AssignedItem): Alloc {
+  return {
+    id: newId(),
+    itemKey: keyOf(it),
+    include: false,
+    ordered: outstanding(it),
+    supplier: "",
+    rate: "",
+    remark: "",
+    etd: "",
+    billTo: "",
+    shipTo: "",
+  };
+}
+
+/**
+ * Bring allocations in line with a fresh read of the sheet. A line whose
+ * outstanding quantity changed is reset to the new figure (its first split
+ * takes it, any other splits go to 0) and unticked, since what the buyer
+ * chose was against the old figure. Unchanged lines keep their edits; lines
+ * new to the sheet are added and vanished ones dropped.
+ */
+function resyncAllocs(
+  prev: Alloc[],
+  before: AssignedItem[],
+  after: AssignedItem[]
+): Alloc[] {
+  const oldOut = new Map(before.map((it) => [keyOf(it), outstanding(it)]));
+  const newByKey = new Map(after.map((it) => [keyOf(it), it]));
+  const firstOf = new Map<string, string>();
+  for (const a of prev) if (!firstOf.has(a.itemKey)) firstOf.set(a.itemKey, a.id);
+
+  const kept = prev
+    .filter((a) => newByKey.has(a.itemKey))
+    .map((a) => {
+      const now = outstanding(newByKey.get(a.itemKey)!);
+      if (oldOut.get(a.itemKey) === now) return a;
+      return {
+        ...a,
+        include: false,
+        ordered: firstOf.get(a.itemKey) === a.id ? now : 0,
+      };
+    });
+  const present = new Set(prev.map((a) => a.itemKey));
+  const added = after.filter((it) => !present.has(keyOf(it))).map(freshAlloc);
+  return [...kept, ...added];
+}
+
 export function PoForm({
   sheetId,
   items,
@@ -56,20 +104,19 @@ export function PoForm({
   const [search, setSearch] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
 
-  const [allocs, setAllocs] = useState<Alloc[]>(() =>
-    items.map((it) => ({
-      id: newId(),
-      itemKey: keyOf(it),
-      include: false,
-      ordered: outstanding(it),
-      supplier: "",
-      rate: "",
-      remark: "",
-      etd: "",
-      billTo: "",
-      shipTo: "",
-    }))
-  );
+  const [allocs, setAllocs] = useState<Alloc[]>(() => items.map(freshAlloc));
+
+  // The page re-reads the sheet after a draft is created or deleted, and the
+  // outstanding quantities change with it. The form used to keep the values
+  // it opened with: a line whose draft was deleted still offered 0 to order,
+  // and a line just drafted stayed ticked with its old quantity. Re-sync the
+  // lines whose outstanding quantity moved; leave the others, and anything
+  // the buyer is typing into them, alone.
+  const [syncedItems, setSyncedItems] = useState(items);
+  if (items !== syncedItems) {
+    setSyncedItems(items);
+    setAllocs((prev) => resyncAllocs(prev, syncedItems, items));
+  }
 
   const [state, formAction, pending] = useActionState(
     async (prev: CreatePoState, fd: FormData) => {
