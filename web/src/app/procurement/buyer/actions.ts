@@ -390,6 +390,69 @@ export async function sendPoToTeam(poId: string): Promise<SendPoState> {
   return { error: null, ok: true };
 }
 
+/**
+ * Delete one of the buyer's own drafts, lines and all.
+ *
+ * Drafts only. A draft is the buyer's private working copy, so removing it
+ * affects nobody else; once sent, the PO team may already be acting on it, and
+ * it stays. The requirement lines it covered become open again, so the items
+ * can be drafted afresh.
+ */
+export async function deletePo(poId: string): Promise<SendPoState> {
+  const me = await requireRole("buyer");
+  const supabase = await createClient();
+  if (!poId) return { error: "Missing PO.", ok: false };
+
+  const { data: poRows, error: readErr } = await supabase
+    .from("po")
+    .select("id, status, created_by, rm_sheet_id, po_line(id, supplier)")
+    .eq("id", poId)
+    .limit(1);
+  if (readErr) return { error: readErr.message, ok: false };
+  const po = poRows?.[0];
+  if (!po) return { error: "PO not found — it may already have been deleted.", ok: false };
+  if (po.created_by !== me.userId)
+    return { error: "This PO was not raised by you.", ok: false };
+  if (po.status !== "draft")
+    return {
+      error: "This PO has already been sent to the PO team, so it can no longer be deleted here.",
+      ok: false,
+    };
+
+  const lines = (po.po_line as unknown as { id: string; supplier: string | null }[]) ?? [];
+
+  // Lines first: they reference the PO. Each delete is filtered so a PO that
+  // was sent between the read above and now is left alone.
+  const { error: lineErr } = await supabase.from("po_line").delete().eq("po_id", poId);
+  if (lineErr) return { error: lineErr.message, ok: false };
+
+  const { data: deleted, error: poErr } = await supabase
+    .from("po")
+    .delete()
+    .eq("id", poId)
+    .eq("status", "draft")
+    .eq("created_by", me.userId)
+    .select("id");
+  if (poErr) return { error: poErr.message, ok: false };
+  if ((deleted?.length ?? 0) === 0)
+    return { error: "Could not delete this PO — it may have been sent meanwhile.", ok: false };
+
+  await supabase.from("audit_log").insert({
+    actor_id: me.userId,
+    entity: "po",
+    entity_id: poId,
+    action: "po_draft_deleted",
+    detail: {
+      sheet_id: po.rm_sheet_id,
+      lines: lines.length,
+      supplier: lines[0]?.supplier ?? null,
+    },
+  });
+
+  revalidatePath(`/procurement/buyer/${po.rm_sheet_id}`);
+  return { error: null, ok: true };
+}
+
 export type BulkSendState = {
   ok: boolean;
   error: string | null;

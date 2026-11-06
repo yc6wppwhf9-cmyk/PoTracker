@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { sendPoToTeam, updatePoLineDetails } from "../actions";
+import { deletePo, sendPoToTeam, updatePoLineDetails } from "../actions";
 import { BILL_TO_SITES, shortSite } from "@/lib/sites";
 
 const FIELD =
@@ -165,6 +165,69 @@ export function SendPoBtn({ poId }: { poId: string }) {
       >
         {pending ? "Sending…" : "Send to PO team"}
       </button>
+    </span>
+  );
+}
+
+/**
+ * Deletes a draft. Asks once, in place: unlike sending, a delete cannot be
+ * walked back, so the button turns into "Delete this draft? Yes / No" first.
+ */
+export function DeletePoBtn({ poId }: { poId: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function onConfirm() {
+    setError(null);
+    startTransition(async () => {
+      const res = await deletePo(poId);
+      if (res.error) {
+        setError(res.error);
+        setConfirming(false);
+      } else router.refresh();
+    });
+  }
+
+  return (
+    <span className="flex items-center gap-2">
+      {error && (
+        <span className="max-w-md text-xs text-red-600 dark:text-red-400">
+          {error}
+        </span>
+      )}
+      {confirming ? (
+        <>
+          <span className="text-xs text-neutral-600 dark:text-neutral-300">
+            Delete this draft?
+          </span>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={pending}
+            className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
+          >
+            {pending ? "Deleting…" : "Yes, delete"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            disabled={pending}
+            className="rounded-lg border border-black/10 px-3 py-1.5 text-xs font-medium transition hover:bg-neutral-100 disabled:opacity-50 dark:border-white/15 dark:hover:bg-neutral-800"
+          >
+            No
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="rounded-lg border border-red-600/40 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 dark:border-red-400/40 dark:text-red-400 dark:hover:bg-red-950"
+        >
+          Delete
+        </button>
+      )}
     </span>
   );
 }

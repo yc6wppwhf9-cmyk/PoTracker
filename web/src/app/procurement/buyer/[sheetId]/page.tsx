@@ -7,7 +7,7 @@ import { fetchAll } from "@/lib/supabase/fetch-all";
 import { PoForm } from "./po-form";
 import type { AssignedItem } from "./assigned-item";
 import { DownloadButton } from "@/app/procurement/approver/download-button";
-import { SendPoBtn, LineDeliveryFields } from "./send-po-btn";
+import { SendPoBtn, DeletePoBtn, LineDeliveryFields } from "./send-po-btn";
 import { BulkSendProvider, SelectPo } from "./bulk-send";
 import { shortSite } from "@/lib/sites";
 
@@ -280,7 +280,10 @@ export default async function BuyerSheetPage({
                         </span>
                       )}
                       {p.status === "draft" && (
-                        <SendPoBtn poId={p.id} />
+                        <>
+                          <DeletePoBtn poId={p.id} />
+                          <SendPoBtn poId={p.id} />
+                        </>
                       )}
                     </span>
                   </div>
