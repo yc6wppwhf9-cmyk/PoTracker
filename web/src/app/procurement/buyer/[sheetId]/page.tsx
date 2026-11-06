@@ -179,7 +179,10 @@ export default async function BuyerSheetPage({
       a.name.localeCompare(b.name) ||
       (a.lot ?? "").localeCompare(b.lot ?? "")
   );
-  items.forEach((i) => (i.required_qty = Math.round(i.required_qty * 100) / 100));
+  // 3 decimals, the precision the sheets carry. Rounding to 2 here made a
+  // requirement of 929.318 read as 929.32, so a draft of exactly 929.318 left
+  // 0.002 "outstanding" and the line never counted as fully ordered.
+  items.forEach((i) => (i.required_qty = Math.round(i.required_qty * 1000) / 1000));
 
   return (
     <AppShell profile={profile}>

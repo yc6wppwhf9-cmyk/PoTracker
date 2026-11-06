@@ -37,8 +37,15 @@ export type AssignedItem = {
  * page cannot call it directly from there.
  */
 export function outstanding(it: AssignedItem): number {
-  return Math.max(
-    0,
-    it.required_qty - (it.ordered_qty ?? 0) - (it.drafted_qty ?? 0)
-  );
+  const left = it.required_qty - (it.ordered_qty ?? 0) - (it.drafted_qty ?? 0);
+  // Rounded to the sheet's own precision (3 decimals), so float noise such as
+  // 0.0020000001 never reaches the order-quantity field.
+  const rounded = Math.round(left * 1000) / 1000;
+  // A leftover under OUTSTANDING_TOLERANCE is rounding, not material to buy:
+  // a requirement of 929.318 drafted as 929.32 (or the reverse) must count as
+  // fully ordered, not stay on the list asking for 0.002 more.
+  return rounded < OUTSTANDING_TOLERANCE ? 0 : rounded;
 }
+
+/** Smallest remainder still treated as something to order. */
+export const OUTSTANDING_TOLERANCE = 0.01;
